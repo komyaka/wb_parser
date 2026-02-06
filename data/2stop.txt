@@ -1,0 +1,15 @@
+# Stop Words (2stop.txt)
+# Lines starting with # are comments
+# Token-start matching: "термо" matches "термокружка" but not "гидротермокружка"
+
+авто
+мото
+вело
+термо
+био
+эко
+гидро
+электро
+тест
+пробник
+образец
