@@ -1,0 +1,14 @@
+# Stop Categories (1stop.txt)
+# Lines starting with # are comments
+# These categories will be filtered out (case-insensitive word matching)
+
+алкоголь
+сигареты
+табак
+оружие
+наркотики
+медикаменты
+лекарства
+18+
+для взрослых
+эротика
