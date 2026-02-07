@@ -126,17 +126,6 @@ class MainWindow(QMainWindow):
         lang_layout.addStretch()
         settings_layout.addLayout(lang_layout)
 
-        # Tooltips toggle
-        tooltip_layout = QHBoxLayout()
-        self.tooltip_check = QCheckBox(self.tr("show_tooltips"))
-        self.tooltip_check.setChecked(self.settings.show_tooltips)
-        self.tooltip_check.stateChanged.connect(self._on_tooltips_changed)
-        if self.settings.show_tooltips:
-            self.tooltip_check.setToolTip(self.tr("tooltip_show_tooltips"))
-        tooltip_layout.addWidget(self.tooltip_check)
-        tooltip_layout.addStretch()
-        settings_layout.addLayout(tooltip_layout)
-
         settings_layout.addStretch()
         group.setLayout(settings_layout)
         layout.addWidget(group)
@@ -165,12 +154,6 @@ class MainWindow(QMainWindow):
                 self.tr("dialog_success"),
                 f"{en_msg}\n\n{ru_msg}",
             )
-
-    def _on_tooltips_changed(self, state: int):
-        """Handle tooltips toggle."""
-        self.settings.show_tooltips = bool(state)
-        self.settings.save()
-        self._update_tooltips()
 
     def _create_file_section(self) -> QGroupBox:
         """Create file selection section."""
@@ -232,6 +215,11 @@ class MainWindow(QMainWindow):
         )
         self.concurrency_spin.setValue(self.parser_config.concurrency)
         conc_layout.addWidget(self.concurrency_spin)
+        # Add question mark with tooltip
+        help_label = QLabel("❓")
+        help_label.setToolTip(self.tr("tooltip_concurrency"))
+        help_label.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        conc_layout.addWidget(help_label)
         conc_layout.addStretch()
         layout.addLayout(conc_layout)
 
@@ -243,6 +231,11 @@ class MainWindow(QMainWindow):
         self.min_delay_spin.setSingleStep(0.1)
         self.min_delay_spin.setValue(self.parser_config.min_delay)
         delay_layout.addWidget(self.min_delay_spin)
+        # Add question mark with tooltip
+        help_label_min = QLabel("❓")
+        help_label_min.setToolTip(self.tr("tooltip_min_delay"))
+        help_label_min.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        delay_layout.addWidget(help_label_min)
 
         delay_layout.addWidget(QLabel(self.tr("max_delay")))
         self.max_delay_spin = QDoubleSpinBox()
@@ -250,6 +243,11 @@ class MainWindow(QMainWindow):
         self.max_delay_spin.setSingleStep(0.1)
         self.max_delay_spin.setValue(self.parser_config.max_delay)
         delay_layout.addWidget(self.max_delay_spin)
+        # Add question mark with tooltip
+        help_label_max = QLabel("❓")
+        help_label_max.setToolTip(self.tr("tooltip_max_delay"))
+        help_label_max.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        delay_layout.addWidget(help_label_max)
         delay_layout.addStretch()
         layout.addLayout(delay_layout)
 
@@ -261,12 +259,22 @@ class MainWindow(QMainWindow):
         self.timeout_spin.setSingleStep(5)
         self.timeout_spin.setValue(self.parser_config.timeout)
         timeout_layout.addWidget(self.timeout_spin)
+        # Add question mark with tooltip
+        help_label_timeout = QLabel("❓")
+        help_label_timeout.setToolTip(self.tr("tooltip_timeout"))
+        help_label_timeout.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        timeout_layout.addWidget(help_label_timeout)
 
         timeout_layout.addWidget(QLabel(self.tr("max_retries")))
         self.retry_spin = QSpinBox()
         self.retry_spin.setRange(0, 10)
         self.retry_spin.setValue(self.parser_config.retry_max)
         timeout_layout.addWidget(self.retry_spin)
+        # Add question mark with tooltip
+        help_label_retry = QLabel("❓")
+        help_label_retry.setToolTip(self.tr("tooltip_max_retries"))
+        help_label_retry.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        timeout_layout.addWidget(help_label_retry)
         timeout_layout.addStretch()
         layout.addLayout(timeout_layout)
 
@@ -275,50 +283,42 @@ class MainWindow(QMainWindow):
         self.cache_check = QCheckBox(self.tr("use_cache"))
         self.cache_check.setChecked(self.parser_config.use_cache)
         options_layout.addWidget(self.cache_check)
+        # Add question mark with tooltip
+        help_label_cache = QLabel("❓")
+        help_label_cache.setToolTip(self.tr("tooltip_use_cache"))
+        help_label_cache.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        options_layout.addWidget(help_label_cache)
 
         self.force_refresh_check = QCheckBox(self.tr("force_refresh"))
         self.force_refresh_check.setChecked(self.parser_config.force_refresh)
         options_layout.addWidget(self.force_refresh_check)
+        # Add question mark with tooltip
+        help_label_refresh = QLabel("❓")
+        help_label_refresh.setToolTip(self.tr("tooltip_force_refresh"))
+        help_label_refresh.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        options_layout.addWidget(help_label_refresh)
 
         self.checkpoint_check = QCheckBox(self.tr("enable_checkpoints"))
         self.checkpoint_check.setChecked(self.parser_config.enable_checkpoints)
         options_layout.addWidget(self.checkpoint_check)
+        # Add question mark with tooltip
+        help_label_checkpoint = QLabel("❓")
+        help_label_checkpoint.setToolTip(self.tr("tooltip_enable_checkpoints"))
+        help_label_checkpoint.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        options_layout.addWidget(help_label_checkpoint)
 
         options_layout.addStretch()
         layout.addLayout(options_layout)
 
         group.setLayout(layout)
 
-        # Set tooltips after creating widgets
-        self._update_tooltips()
-
         return group
 
     def _update_tooltips(self):
         """Update tooltips based on settings."""
-        if self.settings.show_tooltips:
-            self.concurrency_spin.setToolTip(self.tr("tooltip_concurrency"))
-            self.min_delay_spin.setToolTip(self.tr("tooltip_min_delay"))
-            self.max_delay_spin.setToolTip(self.tr("tooltip_max_delay"))
-            self.timeout_spin.setToolTip(self.tr("tooltip_timeout"))
-            self.retry_spin.setToolTip(self.tr("tooltip_max_retries"))
-            self.cache_check.setToolTip(self.tr("tooltip_use_cache"))
-            self.force_refresh_check.setToolTip(self.tr("tooltip_force_refresh"))
-            self.checkpoint_check.setToolTip(self.tr("tooltip_enable_checkpoints"))
-            if hasattr(self, "tooltip_check"):
-                self.tooltip_check.setToolTip(self.tr("tooltip_show_tooltips"))
-        else:
-            # Clear tooltips
-            self.concurrency_spin.setToolTip("")
-            self.min_delay_spin.setToolTip("")
-            self.max_delay_spin.setToolTip("")
-            self.timeout_spin.setToolTip("")
-            self.retry_spin.setToolTip("")
-            self.cache_check.setToolTip("")
-            self.force_refresh_check.setToolTip("")
-            self.checkpoint_check.setToolTip("")
-            if hasattr(self, "tooltip_check"):
-                self.tooltip_check.setToolTip("")
+        # Tooltips are now permanently on question mark icons
+        # This method is kept for backwards compatibility
+        pass
 
     def _create_controls_section(self) -> QGroupBox:
         """Create control buttons section."""
