@@ -27,6 +27,7 @@ class AppSettings:
 
         self.language: str = "ru"  # Default language
         self.show_tooltips: bool = True  # Default show tooltips
+        self.detailed_logging: bool = False  # Default detailed logging off
         self.load()
 
     def load(self) -> None:
@@ -41,6 +42,7 @@ class AppSettings:
 
             self.language = data.get("language", "ru")
             self.show_tooltips = data.get("show_tooltips", True)
+            self.detailed_logging = data.get("detailed_logging", False)
 
             logger.info(f"Loaded settings from {self.settings_file}")
         except Exception as e:
@@ -55,6 +57,7 @@ class AppSettings:
             data = {
                 "language": self.language,
                 "show_tooltips": self.show_tooltips,
+                "detailed_logging": self.detailed_logging,
             }
 
             with open(self.settings_file, "w", encoding="utf-8") as f:

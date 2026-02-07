@@ -17,6 +17,7 @@ def test_app_settings_defaults():
 
         assert settings.language == "ru"
         assert settings.show_tooltips is True
+        assert settings.detailed_logging is False
 
 
 def test_app_settings_save_and_load():
@@ -28,6 +29,7 @@ def test_app_settings_save_and_load():
         settings1 = AppSettings(str(settings_file))
         settings1.language = "en"
         settings1.show_tooltips = False
+        settings1.detailed_logging = True
         settings1.save()
 
         # Load settings in new instance
@@ -35,6 +37,7 @@ def test_app_settings_save_and_load():
 
         assert settings2.language == "en"
         assert settings2.show_tooltips is False
+        assert settings2.detailed_logging is True
 
 
 def test_app_settings_json_format():
@@ -45,6 +48,7 @@ def test_app_settings_json_format():
         settings = AppSettings(str(settings_file))
         settings.language = "ru"
         settings.show_tooltips = True
+        settings.detailed_logging = False
         settings.save()
 
         # Read and verify JSON
@@ -53,6 +57,7 @@ def test_app_settings_json_format():
 
         assert data["language"] == "ru"
         assert data["show_tooltips"] is True
+        assert data["detailed_logging"] is False
 
 
 def test_app_settings_creates_directory():
@@ -76,6 +81,7 @@ def test_app_settings_load_missing_file():
 
         assert settings.language == "ru"
         assert settings.show_tooltips is True
+        assert settings.detailed_logging is False
 
 
 def test_app_settings_load_invalid_json():
@@ -92,6 +98,7 @@ def test_app_settings_load_invalid_json():
         # Should fall back to defaults
         assert settings.language == "ru"
         assert settings.show_tooltips is True
+        assert settings.detailed_logging is False
 
 
 def test_app_settings_partial_data():
@@ -107,3 +114,4 @@ def test_app_settings_partial_data():
 
         assert settings.language == "en"
         assert settings.show_tooltips is True  # Should use default
+        assert settings.detailed_logging is False  # Should use default

@@ -63,6 +63,10 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.setup_logging()
+        
+        # Apply detailed logging setting if enabled
+        if self.settings.detailed_logging:
+            self._apply_detailed_logging()
 
     def init_ui(self):
         """Initialize user interface."""
@@ -126,6 +130,20 @@ class MainWindow(QMainWindow):
         lang_layout.addStretch()
         settings_layout.addLayout(lang_layout)
 
+        # Detailed logging checkbox
+        logging_layout = QHBoxLayout()
+        self.detailed_logging_check = QCheckBox(self.tr("detailed_logging"))
+        self.detailed_logging_check.setChecked(self.settings.detailed_logging)
+        self.detailed_logging_check.stateChanged.connect(self._on_detailed_logging_changed)
+        logging_layout.addWidget(self.detailed_logging_check)
+        # Add question mark with tooltip
+        help_label_logging = QLabel("❓")
+        help_label_logging.setToolTip(self.tr("tooltip_detailed_logging"))
+        help_label_logging.setStyleSheet("QLabel { color: #0066cc; font-size: 12px; }")
+        logging_layout.addWidget(help_label_logging)
+        logging_layout.addStretch()
+        settings_layout.addLayout(logging_layout)
+
         settings_layout.addStretch()
         group.setLayout(settings_layout)
         layout.addWidget(group)
@@ -154,6 +172,61 @@ class MainWindow(QMainWindow):
                 self.tr("dialog_success"),
                 f"{en_msg}\n\n{ru_msg}",
             )
+
+    def _on_detailed_logging_changed(self, state: int) -> None:
+        """Handle detailed logging toggle."""
+        self.settings.detailed_logging = bool(state)
+        self.settings.save()
+        self._apply_detailed_logging()
+
+    def _apply_detailed_logging(self) -> None:
+        """Apply detailed logging configuration."""
+        root_logger = logging.getLogger()
+        log_file_path = Path("logs/wb_parser_debug.log").resolve()
+
+        if self.settings.detailed_logging:
+            # Enable DEBUG level and add file handler
+            root_logger.setLevel(logging.DEBUG)
+
+            # Check if file handler already exists
+            has_file_handler = any(
+                isinstance(h, logging.FileHandler)
+                and Path(h.baseFilename).resolve() == log_file_path
+                for h in root_logger.handlers
+            )
+
+            if not has_file_handler:
+                # Ensure logs directory exists
+                log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Create file handler with DEBUG level
+                file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+                file_handler.setLevel(logging.DEBUG)
+                file_handler.setFormatter(
+                    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+                )
+                root_logger.addHandler(file_handler)
+
+                logger.info(f"Detailed logging enabled: {log_file_path}")
+                self.log_message(f"Detailed logging enabled: {log_file_path}", "INFO")
+        else:
+            # Disable DEBUG level and remove debug file handlers
+            root_logger.setLevel(logging.INFO)
+
+            # Remove file handlers that point to debug log file
+            handlers_to_remove = [
+                h
+                for h in root_logger.handlers
+                if isinstance(h, logging.FileHandler)
+                and Path(h.baseFilename).resolve() == log_file_path
+            ]
+
+            for handler in handlers_to_remove:
+                handler.close()
+                root_logger.removeHandler(handler)
+
+            logger.info("Detailed logging disabled")
+            self.log_message("Detailed logging disabled", "INFO")
 
     def _create_file_section(self) -> QGroupBox:
         """Create file selection section."""
