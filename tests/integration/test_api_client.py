@@ -145,6 +145,24 @@ class TestWBAPIClient:
                 assert result.status == QueryStatus.FAILED
                 assert "429" in result.error_message
 
+    async def test_fetch_total_498_retries(self):
+        """Test HTTP 498 triggers retry logic."""
+        retry_strategy = RetryStrategy(max_retries=0)
+
+        async with WBAPIClient(retry_strategy=retry_strategy) as client:
+            mock_response = AsyncMock()
+            mock_response.status = 498
+            mock_response.history = []
+            mock_response.headers = {}
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            with patch.object(client.session, "get", return_value=mock_response):
+                result = await client.fetch_total("test")
+
+                assert result.status == QueryStatus.FAILED
+                assert "498" in result.error_message
+
     async def test_fetch_total_timeout(self):
         """Test timeout handling."""
         retry_strategy = RetryStrategy(max_retries=1)
