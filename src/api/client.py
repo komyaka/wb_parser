@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from urllib.parse import urlencode
 
@@ -28,6 +29,7 @@ class WBAPIClient:
         max_delay: float = 1.5,
         retry_strategy: RetryStrategy | None = None,
         user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        rate_limit_callback: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize WB API client.
@@ -38,12 +40,14 @@ class WBAPIClient:
             max_delay: Maximum delay between requests (seconds)
             retry_strategy: Retry strategy instance
             user_agent: User-Agent header
+            rate_limit_callback: Async callback to invoke when rate limited (498/429)
         """
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.retry_strategy = retry_strategy or RetryStrategy()
         self.user_agent = user_agent
+        self.rate_limit_callback = rate_limit_callback
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
@@ -148,8 +152,11 @@ class WBAPIClient:
 
                     # Check status code
                     if response.status in (429, 498):
-                        # Rate limited
+                        # Rate limited - trigger global backoff if callback provided
                         logger.warning(f"Rate limited (HTTP {response.status}) for query '{query}'")
+
+                        if self.rate_limit_callback:
+                            await self.rate_limit_callback()
 
                         if self.retry_strategy.should_retry(attempt):
                             retry_after = self._parse_retry_after(response.headers)

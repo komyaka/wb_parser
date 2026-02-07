@@ -54,6 +54,7 @@ TRANSLATIONS = {
         "language_en": "English",
         "language_ru": "Russian (Русский)",
         "show_tooltips": "Show Tooltips",
+        "detailed_logging": "Detailed Logging (save to file)",
         # Tooltips
         "tooltip_concurrency": "Number of simultaneous requests (1-20)",
         "tooltip_min_delay": "Minimum delay between requests in seconds",
@@ -64,6 +65,7 @@ TRANSLATIONS = {
         "tooltip_force_refresh": "Force refresh cached data (ignore cache)",
         "tooltip_enable_checkpoints": "Save progress periodically to resume later",
         "tooltip_show_tooltips": "Enable or disable tooltips for all controls",
+        "tooltip_detailed_logging": "Enable detailed DEBUG-level logging to file for troubleshooting",
         # Messages
         "msg_select_excel": "Please select an Excel file",
         "msg_loading": "Loading Excel file...",
@@ -153,6 +155,7 @@ TRANSLATIONS = {
         "language_en": "English",
         "language_ru": "Русский",
         "show_tooltips": "Показывать подсказки",
+        "detailed_logging": "Детальный лог (сохранение в файл)",
         # Tooltips
         "tooltip_concurrency": "Количество одновременных запросов (1-20)",
         "tooltip_min_delay": "Минимальная задержка между запросами в секундах",
@@ -163,6 +166,7 @@ TRANSLATIONS = {
         "tooltip_force_refresh": "Принудительно обновить кэшированные данные (игнорировать кэш)",
         "tooltip_enable_checkpoints": "Периодически сохранять прогресс для возможности продолжения",
         "tooltip_show_tooltips": "Включить или отключить подсказки для всех элементов",
+        "tooltip_detailed_logging": "Включить детальный DEBUG-уровень логирования в файл для диагностики",
         # Messages
         "msg_select_excel": "Пожалуйста, выберите Excel файл",
         "msg_loading": "Загрузка Excel файла...",

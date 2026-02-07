@@ -13,6 +13,10 @@ from .checkpoint import CheckpointManager
 
 logger = logging.getLogger(__name__)
 
+# Rate limiting backoff constants
+RATE_LIMIT_BASE_BACKOFF_SECONDS = 5.0
+RATE_LIMIT_MAX_BACKOFF_SECONDS = 60.0
+
 
 class ParserPipeline:
     """Main pipeline for processing queries."""
@@ -25,6 +29,12 @@ class ParserPipeline:
         self.is_paused = False
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
+
+        # Global rate limiting coordination
+        self._rate_limit_event = asyncio.Event()
+        self._rate_limit_event.set()  # Initially allow requests
+        self._rate_limit_lock = asyncio.Lock()
+        self._consecutive_rate_limits = 0
 
         # Statistics
         self.stats = {
@@ -47,6 +57,39 @@ class ParserPipeline:
         """Notify progress callback."""
         if self.progress_callback:
             self.progress_callback(self.stats, result)
+
+    async def _on_rate_limited(self) -> None:
+        """
+        Handle global rate limit backoff.
+
+        This method implements exponential backoff when rate limiting occurs.
+        It ensures only one backoff happens at a time using a lock, and blocks
+        all concurrent requests until the backoff period completes.
+        """
+        async with self._rate_limit_lock:
+            # Check if already backing off
+            if not self._rate_limit_event.is_set():
+                return  # Another task is already handling backoff
+
+            # Clear event to block all concurrent requests
+            self._rate_limit_event.clear()
+            self._consecutive_rate_limits += 1
+
+            # Calculate exponential backoff with constants
+            backoff = min(
+                RATE_LIMIT_BASE_BACKOFF_SECONDS * (2 ** (self._consecutive_rate_limits - 1)),
+                RATE_LIMIT_MAX_BACKOFF_SECONDS,
+            )
+            logger.warning(
+                f"Global rate limit backoff: {backoff:.1f}s "
+                f"(consecutive rate limits: {self._consecutive_rate_limits})"
+            )
+
+        # Sleep outside the lock to allow other tasks to check the event
+        await asyncio.sleep(backoff)
+
+        # Re-enable requests
+        self._rate_limit_event.set()
 
     async def process_queries(self, queries: list[tuple[str, int]]) -> list[QueryResult]:
         """
@@ -111,6 +154,7 @@ class ParserPipeline:
             max_delay=self.config.max_delay,
             retry_strategy=retry_strategy,
             user_agent=self.config.user_agent,
+            rate_limit_callback=self._on_rate_limited,
         ) as client:
             # Create semaphore for concurrency control
             semaphore = asyncio.Semaphore(self.config.concurrency)
@@ -143,6 +187,9 @@ class ParserPipeline:
     ) -> QueryResult:
         """Process single query with semaphore control."""
         async with semaphore:
+            # Wait if globally rate-limited
+            await self._rate_limit_event.wait()
+
             # Check for stop signal
             if self._stop_event.is_set():
                 logger.info("Stop signal received")
@@ -173,8 +220,12 @@ class ParserPipeline:
 
                 if result.status == QueryStatus.SUCCESS:
                     self.stats["success"] += 1
+                    # Reset consecutive rate limits on success
+                    self._consecutive_rate_limits = 0
                 elif result.status == QueryStatus.CACHED:
                     self.stats["cached"] += 1
+                    # Reset consecutive rate limits on cached (successful) result
+                    self._consecutive_rate_limits = 0
                 else:
                     self.stats["failed"] += 1
 
