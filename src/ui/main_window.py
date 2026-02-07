@@ -197,7 +197,7 @@ class MainWindow(QMainWindow):
 
             if not has_file_handler:
                 # Ensure logs directory exists
-                log_file_path.parent.mkdir(exist_ok=True)
+                log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Create file handler with DEBUG level
                 file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
