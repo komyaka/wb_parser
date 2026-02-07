@@ -30,6 +30,7 @@ class WBAPIClient:
         retry_strategy: RetryStrategy | None = None,
         user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         rate_limit_callback: Callable[[], Awaitable[None]] | None = None,
+        rate_limit_wait: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize WB API client.
@@ -41,6 +42,7 @@ class WBAPIClient:
             retry_strategy: Retry strategy instance
             user_agent: User-Agent header
             rate_limit_callback: Async callback to invoke when rate limited (498/429)
+            rate_limit_wait: Async callback to wait for global rate limit to be lifted
         """
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.min_delay = min_delay
@@ -48,6 +50,7 @@ class WBAPIClient:
         self.retry_strategy = retry_strategy or RetryStrategy()
         self.user_agent = user_agent
         self.rate_limit_callback = rate_limit_callback
+        self.rate_limit_wait = rate_limit_wait
         self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
@@ -161,6 +164,9 @@ class WBAPIClient:
                         if self.retry_strategy.should_retry(attempt):
                             retry_after = self._parse_retry_after(response.headers)
                             await self.retry_strategy.wait(attempt, retry_after)
+                            # Wait for global rate limit to be lifted before retrying
+                            if self.rate_limit_wait:
+                                await self.rate_limit_wait()
                             attempt += 1
                             continue
                         else:

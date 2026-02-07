@@ -206,3 +206,44 @@ class TestWBAPIClient:
         elapsed = asyncio.get_event_loop().time() - start
 
         assert 0.01 <= elapsed <= 0.03  # Allow small margin
+
+    async def test_fetch_total_rate_limited_waits_for_global(self):
+        """Test that when rate_limit_wait is provided, it is called during retry after rate limiting."""
+        retry_strategy = RetryStrategy(max_retries=1, base_delay=0.01)
+
+        # Track calls
+        rate_limit_wait_called = False
+
+        async def mock_rate_limit_wait():
+            nonlocal rate_limit_wait_called
+            rate_limit_wait_called = True
+
+        async with WBAPIClient(
+            retry_strategy=retry_strategy, rate_limit_wait=mock_rate_limit_wait
+        ) as client:
+            # First response: rate limited (498)
+            # Second response: success
+            mock_response_498 = AsyncMock()
+            mock_response_498.status = 498
+            mock_response_498.history = []
+            mock_response_498.headers = {}
+            mock_response_498.__aenter__ = AsyncMock(return_value=mock_response_498)
+            mock_response_498.__aexit__ = AsyncMock(return_value=None)
+
+            mock_response_200 = AsyncMock()
+            mock_response_200.status = 200
+            mock_response_200.history = []
+            mock_response_200.text = AsyncMock(return_value='{"total": 100}')
+            mock_response_200.headers = {}
+            mock_response_200.__aenter__ = AsyncMock(return_value=mock_response_200)
+            mock_response_200.__aexit__ = AsyncMock(return_value=None)
+
+            with patch.object(
+                client.session, "get", side_effect=[mock_response_498, mock_response_200]
+            ):
+                result = await client.fetch_total("test")
+
+                # Verify rate_limit_wait was called
+                assert rate_limit_wait_called, "rate_limit_wait should be called after rate limit"
+                assert result.status == QueryStatus.SUCCESS
+                assert result.total == 100
