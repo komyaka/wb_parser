@@ -147,9 +147,9 @@ class WBAPIClient:
                         return result
 
                     # Check status code
-                    if response.status == 429:
+                    if response.status in (429, 498):
                         # Rate limited
-                        logger.warning(f"Rate limited for query '{query}'")
+                        logger.warning(f"Rate limited (HTTP {response.status}) for query '{query}'")
 
                         if self.retry_strategy.should_retry(attempt):
                             retry_after = self._parse_retry_after(response.headers)
@@ -158,7 +158,7 @@ class WBAPIClient:
                             continue
                         else:
                             result.status = QueryStatus.FAILED
-                            result.error_message = "Rate limited (429)"
+                            result.error_message = f"Rate limited ({response.status})"
                             result.retry_count = attempt
                             return result
 
