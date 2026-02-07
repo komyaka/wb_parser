@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QGroupBox,
@@ -22,16 +23,20 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ..clean.cleaner import DataCleaner
+from ..config.settings import AppSettings
+from ..core.paths import get_resource_path
 from ..io.csv_writer import CSVWriter
 from ..io.excel_reader import ExcelReader
 from ..models.config import CleaningConfig, ParserConfig
 from ..models.query import QueryResult, QueryStatus
+from .translations import get_text
 from .worker import ParserWorker
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.settings = AppSettings()
         self.parser_config = ParserConfig()
         self.cleaning_config = CleaningConfig()
 
@@ -60,7 +66,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize user interface."""
-        self.setWindowTitle("WB ExactMatch Total Parser")
+        self.setWindowTitle(self.tr("app_title"))
         self.setGeometry(100, 100, 1200, 800)
 
         # Create central widget
@@ -70,74 +76,156 @@ class MainWindow(QMainWindow):
         # Main layout
         main_layout = QVBoxLayout(central_widget)
 
+        # Create tab widget
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._create_parsing_tab(), self.tr("tab_parsing"))
+        self.tabs.addTab(self._create_settings_tab(), self.tr("tab_settings"))
+        main_layout.addWidget(self.tabs)
+
+        self.log_message("Application started", "INFO")
+
+    def _create_parsing_tab(self) -> QWidget:
+        """Create main parsing tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
         # Create sections
-        main_layout.addWidget(self._create_file_section())
-        main_layout.addWidget(self._create_settings_section())
-        main_layout.addWidget(self._create_controls_section())
-        main_layout.addWidget(self._create_progress_section())
+        layout.addWidget(self._create_file_section())
+        layout.addWidget(self._create_parser_settings_section())
+        layout.addWidget(self._create_controls_section())
+        layout.addWidget(self._create_progress_section())
 
         # Create splitter for data preview and log
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self._create_preview_section())
         splitter.addWidget(self._create_log_section())
-        main_layout.addWidget(splitter)
+        layout.addWidget(splitter)
 
-        self.log_message("Application started", "INFO")
+        return tab
+
+    def _create_settings_tab(self) -> QWidget:
+        """Create settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Settings group
+        group = QGroupBox(self.tr("app_settings"))
+        settings_layout = QVBoxLayout()
+
+        # Language selection
+        lang_layout = QHBoxLayout()
+        lang_layout.addWidget(QLabel(self.tr("language")))
+        self.language_combo = QComboBox()
+        self.language_combo.addItem(self.tr("language_ru"), "ru")
+        self.language_combo.addItem(self.tr("language_en"), "en")
+        # Set current language
+        index = 0 if self.settings.language == "ru" else 1
+        self.language_combo.setCurrentIndex(index)
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        lang_layout.addWidget(self.language_combo)
+        lang_layout.addStretch()
+        settings_layout.addLayout(lang_layout)
+
+        # Tooltips toggle
+        tooltip_layout = QHBoxLayout()
+        self.tooltip_check = QCheckBox(self.tr("show_tooltips"))
+        self.tooltip_check.setChecked(self.settings.show_tooltips)
+        self.tooltip_check.stateChanged.connect(self._on_tooltips_changed)
+        if self.settings.show_tooltips:
+            self.tooltip_check.setToolTip(self.tr("tooltip_show_tooltips"))
+        tooltip_layout.addWidget(self.tooltip_check)
+        tooltip_layout.addStretch()
+        settings_layout.addLayout(tooltip_layout)
+
+        settings_layout.addStretch()
+        group.setLayout(settings_layout)
+        layout.addWidget(group)
+        layout.addStretch()
+
+        return tab
+
+    def tr(self, key: str, **kwargs) -> str:
+        """Translate text using current language."""
+        return get_text(key, self.settings.language, **kwargs)
+
+    def _on_language_changed(self, index: int):
+        """Handle language change."""
+        language = self.language_combo.itemData(index)
+        if language != self.settings.language:
+            self.settings.language = language
+            self.settings.save()
+            # Update tab labels dynamically
+            self.tabs.setTabText(0, self.tr("tab_parsing"))
+            self.tabs.setTabText(1, self.tr("tab_settings"))
+            # Show restart message for full UI refresh
+            en_msg = "Language changed. Please restart the application for full effect."
+            ru_msg = "Язык изменён. Пожалуйста, перезапустите приложение для полного применения."
+            QMessageBox.information(
+                self,
+                self.tr("dialog_success"),
+                f"{en_msg}\n\n{ru_msg}",
+            )
+
+    def _on_tooltips_changed(self, state: int):
+        """Handle tooltips toggle."""
+        self.settings.show_tooltips = bool(state)
+        self.settings.save()
+        self._update_tooltips()
 
     def _create_file_section(self) -> QGroupBox:
         """Create file selection section."""
-        group = QGroupBox("File Selection")
+        group = QGroupBox(self.tr("file_selection"))
         layout = QVBoxLayout()
 
         # Excel file
         excel_layout = QHBoxLayout()
-        excel_layout.addWidget(QLabel("Excel File:"))
+        excel_layout.addWidget(QLabel(self.tr("excel_file")))
         self.excel_input = QLineEdit()
-        self.excel_input.setPlaceholderText("Select Excel file (.xlsx)")
+        self.excel_input.setPlaceholderText(self.tr("excel_placeholder"))
         excel_layout.addWidget(self.excel_input)
-        self.excel_btn = QPushButton("Browse...")
+        self.excel_btn = QPushButton(self.tr("browse"))
         self.excel_btn.clicked.connect(self.browse_excel)
         excel_layout.addWidget(self.excel_btn)
         layout.addLayout(excel_layout)
 
         # Stop categories file
         cat_layout = QHBoxLayout()
-        cat_layout.addWidget(QLabel("Stop Categories (1stop.txt):"))
+        cat_layout.addWidget(QLabel(self.tr("stop_categories")))
         self.cat_input = QLineEdit()
         self.cat_input.setText(self.cleaning_config.stop_categories_file)
         cat_layout.addWidget(self.cat_input)
-        self.cat_btn = QPushButton("Browse...")
+        self.cat_btn = QPushButton(self.tr("browse"))
         self.cat_btn.clicked.connect(self.browse_stop_categories)
         cat_layout.addWidget(self.cat_btn)
         layout.addLayout(cat_layout)
 
         # Stop words file
         words_layout = QHBoxLayout()
-        words_layout.addWidget(QLabel("Stop Words (2stop.txt):"))
+        words_layout.addWidget(QLabel(self.tr("stop_words")))
         self.words_input = QLineEdit()
         self.words_input.setText(self.cleaning_config.stop_words_file)
         words_layout.addWidget(self.words_input)
-        self.words_btn = QPushButton("Browse...")
+        self.words_btn = QPushButton(self.tr("browse"))
         self.words_btn.clicked.connect(self.browse_stop_words)
         words_layout.addWidget(self.words_btn)
         layout.addLayout(words_layout)
 
         # Load button
-        self.load_btn = QPushButton("Load and Clean Data")
+        self.load_btn = QPushButton(self.tr("load_and_clean"))
         self.load_btn.clicked.connect(self.load_and_clean)
         layout.addWidget(self.load_btn)
 
         group.setLayout(layout)
         return group
 
-    def _create_settings_section(self) -> QGroupBox:
+    def _create_parser_settings_section(self) -> QGroupBox:
         """Create parser settings section."""
-        group = QGroupBox("Parser Settings")
+        group = QGroupBox(self.tr("parser_settings"))
         layout = QVBoxLayout()
 
         # Concurrency
         conc_layout = QHBoxLayout()
-        conc_layout.addWidget(QLabel("Concurrency:"))
+        conc_layout.addWidget(QLabel(self.tr("concurrency")))
         self.concurrency_spin = QSpinBox()
         self.concurrency_spin.setRange(
             self.parser_config.min_concurrency, self.parser_config.max_concurrency
@@ -149,14 +237,14 @@ class MainWindow(QMainWindow):
 
         # Delays
         delay_layout = QHBoxLayout()
-        delay_layout.addWidget(QLabel("Min Delay (s):"))
+        delay_layout.addWidget(QLabel(self.tr("min_delay")))
         self.min_delay_spin = QDoubleSpinBox()
         self.min_delay_spin.setRange(0, 10)
         self.min_delay_spin.setSingleStep(0.1)
         self.min_delay_spin.setValue(self.parser_config.min_delay)
         delay_layout.addWidget(self.min_delay_spin)
 
-        delay_layout.addWidget(QLabel("Max Delay (s):"))
+        delay_layout.addWidget(QLabel(self.tr("max_delay")))
         self.max_delay_spin = QDoubleSpinBox()
         self.max_delay_spin.setRange(0, 10)
         self.max_delay_spin.setSingleStep(0.1)
@@ -167,14 +255,14 @@ class MainWindow(QMainWindow):
 
         # Timeout and retry
         timeout_layout = QHBoxLayout()
-        timeout_layout.addWidget(QLabel("Timeout (s):"))
+        timeout_layout.addWidget(QLabel(self.tr("timeout")))
         self.timeout_spin = QDoubleSpinBox()
         self.timeout_spin.setRange(5, 120)
         self.timeout_spin.setSingleStep(5)
         self.timeout_spin.setValue(self.parser_config.timeout)
         timeout_layout.addWidget(self.timeout_spin)
 
-        timeout_layout.addWidget(QLabel("Max Retries:"))
+        timeout_layout.addWidget(QLabel(self.tr("max_retries")))
         self.retry_spin = QSpinBox()
         self.retry_spin.setRange(0, 10)
         self.retry_spin.setValue(self.parser_config.retry_max)
@@ -184,15 +272,15 @@ class MainWindow(QMainWindow):
 
         # Options
         options_layout = QHBoxLayout()
-        self.cache_check = QCheckBox("Use Cache")
+        self.cache_check = QCheckBox(self.tr("use_cache"))
         self.cache_check.setChecked(self.parser_config.use_cache)
         options_layout.addWidget(self.cache_check)
 
-        self.force_refresh_check = QCheckBox("Force Refresh")
+        self.force_refresh_check = QCheckBox(self.tr("force_refresh"))
         self.force_refresh_check.setChecked(self.parser_config.force_refresh)
         options_layout.addWidget(self.force_refresh_check)
 
-        self.checkpoint_check = QCheckBox("Enable Checkpoints")
+        self.checkpoint_check = QCheckBox(self.tr("enable_checkpoints"))
         self.checkpoint_check.setChecked(self.parser_config.enable_checkpoints)
         options_layout.addWidget(self.checkpoint_check)
 
@@ -200,34 +288,64 @@ class MainWindow(QMainWindow):
         layout.addLayout(options_layout)
 
         group.setLayout(layout)
+
+        # Set tooltips after creating widgets
+        self._update_tooltips()
+
         return group
+
+    def _update_tooltips(self):
+        """Update tooltips based on settings."""
+        if self.settings.show_tooltips:
+            self.concurrency_spin.setToolTip(self.tr("tooltip_concurrency"))
+            self.min_delay_spin.setToolTip(self.tr("tooltip_min_delay"))
+            self.max_delay_spin.setToolTip(self.tr("tooltip_max_delay"))
+            self.timeout_spin.setToolTip(self.tr("tooltip_timeout"))
+            self.retry_spin.setToolTip(self.tr("tooltip_max_retries"))
+            self.cache_check.setToolTip(self.tr("tooltip_use_cache"))
+            self.force_refresh_check.setToolTip(self.tr("tooltip_force_refresh"))
+            self.checkpoint_check.setToolTip(self.tr("tooltip_enable_checkpoints"))
+            if hasattr(self, "tooltip_check"):
+                self.tooltip_check.setToolTip(self.tr("tooltip_show_tooltips"))
+        else:
+            # Clear tooltips
+            self.concurrency_spin.setToolTip("")
+            self.min_delay_spin.setToolTip("")
+            self.max_delay_spin.setToolTip("")
+            self.timeout_spin.setToolTip("")
+            self.retry_spin.setToolTip("")
+            self.cache_check.setToolTip("")
+            self.force_refresh_check.setToolTip("")
+            self.checkpoint_check.setToolTip("")
+            if hasattr(self, "tooltip_check"):
+                self.tooltip_check.setToolTip("")
 
     def _create_controls_section(self) -> QGroupBox:
         """Create control buttons section."""
-        group = QGroupBox("Controls")
+        group = QGroupBox(self.tr("controls"))
         layout = QHBoxLayout()
 
-        self.start_btn = QPushButton("Start Parsing")
+        self.start_btn = QPushButton(self.tr("start_parsing"))
         self.start_btn.clicked.connect(self.start_parsing)
         self.start_btn.setEnabled(False)
         layout.addWidget(self.start_btn)
 
-        self.pause_btn = QPushButton("Pause")
+        self.pause_btn = QPushButton(self.tr("pause"))
         self.pause_btn.clicked.connect(self.pause_parsing)
         self.pause_btn.setEnabled(False)
         layout.addWidget(self.pause_btn)
 
-        self.resume_btn = QPushButton("Resume")
+        self.resume_btn = QPushButton(self.tr("resume"))
         self.resume_btn.clicked.connect(self.resume_parsing)
         self.resume_btn.setEnabled(False)
         layout.addWidget(self.resume_btn)
 
-        self.stop_btn = QPushButton("Stop")
+        self.stop_btn = QPushButton(self.tr("stop"))
         self.stop_btn.clicked.connect(self.stop_parsing)
         self.stop_btn.setEnabled(False)
         layout.addWidget(self.stop_btn)
 
-        self.export_btn = QPushButton("Export CSV")
+        self.export_btn = QPushButton(self.tr("export_csv"))
         self.export_btn.clicked.connect(self.export_csv)
         self.export_btn.setEnabled(False)
         layout.addWidget(self.export_btn)
@@ -239,7 +357,7 @@ class MainWindow(QMainWindow):
 
     def _create_progress_section(self) -> QGroupBox:
         """Create progress section."""
-        group = QGroupBox("Progress")
+        group = QGroupBox(self.tr("progress"))
         layout = QVBoxLayout()
 
         # Progress bar
@@ -251,22 +369,22 @@ class MainWindow(QMainWindow):
         # Statistics
         stats_layout = QHBoxLayout()
 
-        self.total_label = QLabel("Total: 0")
+        self.total_label = QLabel(f"{self.tr('total')}: 0")
         stats_layout.addWidget(self.total_label)
 
-        self.completed_label = QLabel("Completed: 0")
+        self.completed_label = QLabel(f"{self.tr('completed')}: 0")
         stats_layout.addWidget(self.completed_label)
 
-        self.success_label = QLabel("Success: 0")
+        self.success_label = QLabel(f"{self.tr('success')}: 0")
         stats_layout.addWidget(self.success_label)
 
-        self.failed_label = QLabel("Failed: 0")
+        self.failed_label = QLabel(f"{self.tr('failed')}: 0")
         stats_layout.addWidget(self.failed_label)
 
-        self.cached_label = QLabel("Cached: 0")
+        self.cached_label = QLabel(f"{self.tr('cached')}: 0")
         stats_layout.addWidget(self.cached_label)
 
-        self.speed_label = QLabel("Speed: 0 q/s")
+        self.speed_label = QLabel(f"{self.tr('speed')}: 0 q/s")
         stats_layout.addWidget(self.speed_label)
 
         stats_layout.addStretch()
@@ -277,12 +395,14 @@ class MainWindow(QMainWindow):
 
     def _create_preview_section(self) -> QGroupBox:
         """Create data preview section."""
-        group = QGroupBox("Data Preview")
+        group = QGroupBox(self.tr("data_preview"))
         layout = QVBoxLayout()
 
         self.preview_table = QTableWidget()
         self.preview_table.setColumnCount(3)
-        self.preview_table.setHorizontalHeaderLabels(["Query", "Count", "Status"])
+        self.preview_table.setHorizontalHeaderLabels(
+            [self.tr("preview_query"), self.tr("preview_count"), self.tr("preview_status")]
+        )
         self.preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         layout.addWidget(self.preview_table)
 
@@ -291,7 +411,7 @@ class MainWindow(QMainWindow):
 
     def _create_log_section(self) -> QGroupBox:
         """Create log window section."""
-        group = QGroupBox("Log")
+        group = QGroupBox(self.tr("log"))
         layout = QVBoxLayout()
 
         self.log_text = QTextEdit()
@@ -320,7 +440,10 @@ class MainWindow(QMainWindow):
     def browse_excel(self):
         """Browse for Excel file."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Excel File", "", "Excel Files (*.xlsx *.xls)"
+            self,
+            self.tr("dialog_select_excel_title"),
+            "",
+            self.tr("dialog_excel_filter"),
         )
         if file_path:
             self.excel_input.setText(file_path)
@@ -329,7 +452,10 @@ class MainWindow(QMainWindow):
     def browse_stop_categories(self):
         """Browse for stop categories file."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Stop Categories File", "", "Text Files (*.txt)"
+            self,
+            self.tr("dialog_select_stop_cat_title"),
+            "",
+            self.tr("dialog_text_filter"),
         )
         if file_path:
             self.cat_input.setText(file_path)
@@ -338,7 +464,10 @@ class MainWindow(QMainWindow):
     def browse_stop_words(self):
         """Browse for stop words file."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Stop Words File", "", "Text Files (*.txt)"
+            self,
+            self.tr("dialog_select_stop_words_title"),
+            "",
+            self.tr("dialog_text_filter"),
         )
         if file_path:
             self.words_input.setText(file_path)
@@ -348,10 +477,10 @@ class MainWindow(QMainWindow):
         """Load Excel file and clean data."""
         try:
             if not self.excel_input.text():
-                QMessageBox.warning(self, "Error", "Please select an Excel file")
+                QMessageBox.warning(self, self.tr("dialog_error"), self.tr("msg_select_excel"))
                 return
 
-            self.log_message("Loading Excel file...")
+            self.log_message(self.tr("msg_loading"))
 
             # Update configs
             self.cleaning_config.stop_categories_file = self.cat_input.text()
@@ -361,21 +490,59 @@ class MainWindow(QMainWindow):
             reader = ExcelReader(self.excel_input.text())
             df = reader.load(self.cleaning_config.user_column_map)
 
-            self.log_message(f"Loaded {len(df)} rows", "SUCCESS")
+            self.log_message(self.tr("msg_loaded", count=len(df)), "SUCCESS")
 
             # Clean data
-            self.log_message("Cleaning data...")
+            self.log_message(self.tr("msg_cleaning"))
             cleaner = DataCleaner(self.cleaning_config)
             self.cleaned_data, self.removed_data = cleaner.clean(df)
 
             self.log_message(
-                f"Cleaned: {len(self.cleaned_data)} kept, {len(self.removed_data)} removed",
+                self.tr(
+                    "msg_cleaned",
+                    kept=len(self.cleaned_data),
+                    removed=len(self.removed_data),
+                ),
                 "SUCCESS",
             )
 
+            # Save removed rows to separate files
+            if len(self.removed_data) > 0:
+                removed_by_categories, removed_by_stop_words = cleaner.split_removed_by_reason(
+                    self.removed_data
+                )
+
+                # Save categories file
+                if len(removed_by_categories) > 0:
+                    cat_path = get_resource_path("data/removed_by_categories.csv")
+                    cat_path.parent.mkdir(parents=True, exist_ok=True)
+                    cat_writer = CSVWriter(str(cat_path), encoding="utf-8-sig")
+                    cat_writer.write(
+                        removed_by_categories.to_dict("records"),
+                        list(removed_by_categories.columns),
+                    )
+                    self.log_message(
+                        self.tr("msg_saved_categories", path=str(cat_path)), "SUCCESS"
+                    )
+
+                # Save stop words file
+                if len(removed_by_stop_words) > 0:
+                    words_path = get_resource_path("data/removed_by_stop_words.csv")
+                    words_path.parent.mkdir(parents=True, exist_ok=True)
+                    words_writer = CSVWriter(str(words_path), encoding="utf-8-sig")
+                    words_writer.write(
+                        removed_by_stop_words.to_dict("records"),
+                        list(removed_by_stop_words.columns),
+                    )
+                    self.log_message(
+                        self.tr("msg_saved_stop_words", path=str(words_path)), "SUCCESS"
+                    )
+
             # Extract unique queries
             self.unique_queries = cleaner.extract_unique_queries(self.cleaned_data)
-            self.log_message(f"Found {len(self.unique_queries)} unique queries", "SUCCESS")
+            self.log_message(
+                self.tr("msg_unique_queries", count=len(self.unique_queries)), "SUCCESS"
+            )
 
             # Update preview
             self._update_preview()
@@ -386,7 +553,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading data: {e}", exc_info=True)
             self.log_message(f"Error: {str(e)}", "ERROR")
-            QMessageBox.critical(self, "Error", f"Failed to load data:\n{str(e)}")
+            QMessageBox.critical(
+                self, self.tr("dialog_error"), f"Failed to load data:\n{str(e)}"
+            )
 
     def _update_preview(self):
         """Update data preview table."""
@@ -395,13 +564,13 @@ class MainWindow(QMainWindow):
         for i, (query, count) in enumerate(self.unique_queries[:100]):
             self.preview_table.setItem(i, 0, QTableWidgetItem(query))
             self.preview_table.setItem(i, 1, QTableWidgetItem(str(count)))
-            self.preview_table.setItem(i, 2, QTableWidgetItem("Pending"))
+            self.preview_table.setItem(i, 2, QTableWidgetItem(self.tr("preview_pending")))
 
     def start_parsing(self):
         """Start parsing process."""
         try:
             if not self.unique_queries:
-                QMessageBox.warning(self, "Error", "No queries to process")
+                QMessageBox.warning(self, self.tr("dialog_error"), self.tr("msg_no_queries"))
                 return
 
             # Update config from UI
@@ -410,10 +579,12 @@ class MainWindow(QMainWindow):
             # Validate config
             errors = self.parser_config.validate()
             if errors:
-                QMessageBox.warning(self, "Configuration Error", "\n".join(errors))
+                QMessageBox.warning(
+                    self, self.tr("dialog_config_error"), "\n".join(errors)
+                )
                 return
 
-            self.log_message("Starting parsing...")
+            self.log_message(self.tr("msg_starting"))
 
             # Create worker
             self.worker = ParserWorker(self.parser_config, self.unique_queries)
@@ -440,13 +611,15 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error starting parser: {e}", exc_info=True)
             self.log_message(f"Error: {str(e)}", "ERROR")
-            QMessageBox.critical(self, "Error", f"Failed to start parser:\n{str(e)}")
+            QMessageBox.critical(
+                self, self.tr("dialog_error"), f"Failed to start parser:\n{str(e)}"
+            )
 
     def pause_parsing(self):
         """Pause parsing."""
         if self.worker:
             self.worker.pause()
-            self.log_message("Paused", "WARNING")
+            self.log_message(self.tr("msg_paused"), "WARNING")
             self.pause_btn.setEnabled(False)
             self.resume_btn.setEnabled(True)
 
@@ -454,7 +627,7 @@ class MainWindow(QMainWindow):
         """Resume parsing."""
         if self.worker:
             self.worker.resume()
-            self.log_message("Resumed", "SUCCESS")
+            self.log_message(self.tr("msg_resumed"), "SUCCESS")
             self.pause_btn.setEnabled(True)
             self.resume_btn.setEnabled(False)
 
@@ -462,7 +635,7 @@ class MainWindow(QMainWindow):
         """Stop parsing."""
         if self.worker:
             self.worker.stop()
-            self.log_message("Stopping...", "WARNING")
+            self.log_message(self.tr("msg_stopping"), "WARNING")
             self.stop_btn.setEnabled(False)
 
     def _update_config_from_ui(self):
@@ -484,11 +657,11 @@ class MainWindow(QMainWindow):
             self.progress_bar.setValue(progress)
 
         # Update labels
-        self.total_label.setText(f"Total: {stats['total']}")
-        self.completed_label.setText(f"Completed: {stats['completed']}")
-        self.success_label.setText(f"Success: {stats['success']}")
-        self.failed_label.setText(f"Failed: {stats['failed']}")
-        self.cached_label.setText(f"Cached: {stats['cached']}")
+        self.total_label.setText(f"{self.tr('total')}: {stats['total']}")
+        self.completed_label.setText(f"{self.tr('completed')}: {stats['completed']}")
+        self.success_label.setText(f"{self.tr('success')}: {stats['success']}")
+        self.failed_label.setText(f"{self.tr('failed')}: {stats['failed']}")
+        self.cached_label.setText(f"{self.tr('cached')}: {stats['cached']}")
 
         # Calculate speed
         # TODO: Implement speed calculation
@@ -512,7 +685,7 @@ class MainWindow(QMainWindow):
     def _on_finished(self, results: list):
         """Handle parsing completion."""
         self.results = results
-        self.log_message(f"Parsing complete: {len(results)} results", "SUCCESS")
+        self.log_message(self.tr("msg_complete", count=len(results)), "SUCCESS")
 
         # Update UI
         self.start_btn.setEnabled(True)
@@ -530,12 +703,18 @@ class MainWindow(QMainWindow):
 
         self.worker = None
 
+        success_count = sum(1 for r in results if r.status == QueryStatus.SUCCESS)
+        failed_count = sum(1 for r in results if r.status == QueryStatus.FAILED)
+
         QMessageBox.information(
             self,
-            "Complete",
-            f"Parsing complete!\n\nTotal: {len(results)}\n"
-            f"Success: {sum(1 for r in results if r.status == QueryStatus.SUCCESS)}\n"
-            f"Failed: {sum(1 for r in results if r.status == QueryStatus.FAILED)}",
+            self.tr("dialog_complete"),
+            self.tr(
+                "dialog_complete_msg",
+                total=len(results),
+                success=success_count,
+                failed=failed_count,
+            ),
         )
 
     def _on_error(self, error_msg: str):
@@ -554,15 +733,18 @@ class MainWindow(QMainWindow):
         """Export results to CSV."""
         try:
             if not self.results:
-                QMessageBox.warning(self, "Error", "No results to export")
+                QMessageBox.warning(self, self.tr("dialog_error"), self.tr("msg_no_results"))
                 return
 
             file_path, _ = QFileDialog.getSaveFileName(
-                self, "Save CSV File", "wb_results.csv", "CSV Files (*.csv)"
+                self,
+                self.tr("dialog_save_csv_title"),
+                "wb_results.csv",
+                self.tr("dialog_csv_filter"),
             )
 
             if file_path:
-                self.log_message("Exporting results...")
+                self.log_message(self.tr("msg_exporting"))
 
                 # Prepare data
                 data = []
@@ -599,7 +781,7 @@ class MainWindow(QMainWindow):
                 writer = CSVWriter(file_path, encoding=self.parser_config.output_encoding)
                 writer.write(data, fieldnames)
 
-                self.log_message(f"Exported to {file_path}", "SUCCESS")
+                self.log_message(self.tr("msg_exported", path=file_path), "SUCCESS")
 
                 # Export removed rows if any
                 if self.removed_data is not None and len(self.removed_data) > 0:
@@ -614,11 +796,17 @@ class MainWindow(QMainWindow):
                     removed_fieldnames = list(self.removed_data.columns)
                     removed_writer.write(removed_data_list, removed_fieldnames)
 
-                    self.log_message(f"Exported removed rows to {removed_path}", "SUCCESS")
+                    self.log_message(
+                        self.tr("msg_exported_removed", path=removed_path), "SUCCESS"
+                    )
 
-                QMessageBox.information(self, "Success", "Results exported successfully!")
+                QMessageBox.information(
+                    self, self.tr("dialog_success"), self.tr("dialog_export_success")
+                )
 
         except Exception as e:
             logger.error(f"Error exporting CSV: {e}", exc_info=True)
-            self.log_message(f"Export error: {str(e)}", "ERROR")
-            QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
+            self.log_message(self.tr("msg_export_error", error=str(e)), "ERROR")
+            QMessageBox.critical(
+                self, self.tr("dialog_error"), f"Failed to export:\n{str(e)}"
+            )

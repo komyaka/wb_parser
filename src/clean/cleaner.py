@@ -135,3 +135,34 @@ class DataCleaner:
     def get_removed_rows(self) -> list[dict]:
         """Get list of removed rows with reasons."""
         return self.removed_rows
+
+    def split_removed_by_reason(
+        self, removed_df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Split removed DataFrame into separate DataFrames by removal reason.
+
+        Args:
+            removed_df: DataFrame with 'matched_stop' column containing reasons
+
+        Returns:
+            Tuple of (removed_by_categories_df, removed_by_stop_words_df)
+        """
+        if len(removed_df) == 0 or "matched_stop" not in removed_df.columns:
+            empty = pd.DataFrame(columns=removed_df.columns)
+            return empty, empty
+
+        # Rows removed by stop categories
+        category_mask = removed_df["matched_stop"] == "stop_category"
+        removed_by_categories = removed_df[category_mask].copy()
+
+        # Rows removed by stop words (includes "stop_word:xxx" format)
+        stop_word_mask = removed_df["matched_stop"].str.startswith("stop_word:", na=False)
+        removed_by_stop_words = removed_df[stop_word_mask].copy()
+
+        logger.info(
+            f"Split removed rows: {len(removed_by_categories)} by categories, "
+            f"{len(removed_by_stop_words)} by stop words"
+        )
+
+        return removed_by_categories, removed_by_stop_words
