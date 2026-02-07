@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 from collections.abc import Callable
 
 from ..api.client import WBAPIClient
@@ -91,6 +92,10 @@ class ParserPipeline:
         # Re-enable requests
         self._rate_limit_event.set()
 
+    async def _wait_for_rate_limit(self) -> None:
+        """Wait until the global rate limit backoff is over."""
+        await self._rate_limit_event.wait()
+
     async def process_queries(self, queries: list[tuple[str, int]]) -> list[QueryResult]:
         """
         Process list of queries with API calls.
@@ -155,6 +160,7 @@ class ParserPipeline:
             retry_strategy=retry_strategy,
             user_agent=self.config.user_agent,
             rate_limit_callback=self._on_rate_limited,
+            rate_limit_wait=self._wait_for_rate_limit,
         ) as client:
             # Create semaphore for concurrency control
             semaphore = asyncio.Semaphore(self.config.concurrency)
@@ -189,6 +195,11 @@ class ParserPipeline:
         async with semaphore:
             # Wait if globally rate-limited
             await self._rate_limit_event.wait()
+
+            # Stagger requests to avoid thundering herd after rate limit backoff
+            if self._consecutive_rate_limits > 0:
+                stagger_delay = random.uniform(0.1, 0.5) * (index % self.config.concurrency)
+                await asyncio.sleep(stagger_delay)
 
             # Check for stop signal
             if self._stop_event.is_set():
