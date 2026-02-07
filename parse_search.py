@@ -103,6 +103,7 @@ async def run_parse(
         QueryResult with parsing results
     """
     action_logger.info("Starting WB search parser")
+    start_time = datetime.now()
     action_logger.info(f"Query to parse: '{query}'")
 
     # Initialize API client
@@ -114,8 +115,26 @@ async def run_parse(
             action_logger.debug("API client initialized successfully")
             action_logger.info("Building request URL")
 
-            # Build the URL (done internally by client._build_url)
-            url = client._build_url(query)
+            # Build the URL to log it (same params as in WBAPIClient._build_url)
+            from urllib.parse import urlencode
+
+            params = {
+                "ab_testing": "false",
+                "appType": "1",
+                "curr": "rub",
+                "dest": "-1586361",
+                "hide_dtype": "11",
+                "inheritFilters": "false",
+                "lang": "ru",
+                "page": "1",
+                "query": query,
+                "resultset": "catalog",
+                "sort": "popular",
+                "spp": "30",
+                "suppressSpellcheck": "false",
+                "uclusters": "2",
+            }
+            url = f"{client.API_ENDPOINT}?{urlencode(params)}"
             action_logger.info(f"Request URL: {url}")
 
             action_logger.info("Sending request to WB API")
@@ -160,7 +179,12 @@ async def run_parse(
             result_logger.info("=" * 80)
 
             action_logger.info("Parsing complete")
-            action_logger.debug(f"Total execution time recorded at {datetime.now()}")
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            action_logger.debug(
+                f"Execution completed at {end_time.isoformat()} "
+                f"(duration: {duration:.2f} seconds)"
+            )
 
             return result
 
