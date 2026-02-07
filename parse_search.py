@@ -154,7 +154,9 @@ async def run_parse(
             )
             result_logger.info("-" * 80)
             result_logger.info("Raw Response (first 500 chars):")
-            result_logger.info(result.raw_response if result.raw_response else "No raw response")
+            result_logger.info(
+                result.raw_response[:500] if result.raw_response else "No raw response"
+            )
             result_logger.info("=" * 80)
 
             action_logger.info("Parsing complete")
