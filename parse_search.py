@@ -115,26 +115,11 @@ async def run_parse(
             action_logger.debug("API client initialized successfully")
             action_logger.info("Building request URL")
 
-            # Build the URL to log it (same params as in WBAPIClient._build_url)
-            from urllib.parse import urlencode
-
-            params = {
-                "ab_testing": "false",
-                "appType": "1",
-                "curr": "rub",
-                "dest": "-1586361",
-                "hide_dtype": "11",
-                "inheritFilters": "false",
-                "lang": "ru",
-                "page": "1",
-                "query": query,
-                "resultset": "catalog",
-                "sort": "popular",
-                "spp": "30",
-                "suppressSpellcheck": "false",
-                "uclusters": "2",
-            }
-            url = f"{client.API_ENDPOINT}?{urlencode(params)}"
+            # For logging purposes only: show the URL that will be requested
+            # Note: Using _build_url (private method) here for logging transparency.
+            # This is acceptable because we're only reading/displaying, not modifying behavior.
+            # The actual request is handled by client.fetch_total() below.
+            url = client._build_url(query)
             action_logger.info(f"Request URL: {url}")
 
             action_logger.info("Sending request to WB API")
