@@ -20,6 +20,7 @@ class TestWBAPIClient:
         url = client._build_url("тест запрос")
 
         assert "wildberries.ru" in url
+        assert "__internal/search/exactmatch" in url
         assert "query=тест+запрос" in url or "query=%D1%82%D0%B5%D1%81%D1%82" in url
         assert "appType=1" in url
         assert "dest=-1586361" in url
@@ -104,6 +105,9 @@ class TestWBAPIClient:
             mock_response = AsyncMock()
             mock_response.status = 200
             mock_response.history = [Mock()]  # Non-empty history indicates redirect
+            mock_response.headers = {}
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
 
             with patch.object(client.session, "get", return_value=mock_response):
                 result = await client.fetch_total("test")
@@ -247,3 +251,33 @@ class TestWBAPIClient:
                 assert rate_limit_wait_called, "rate_limit_wait should be called after rate limit"
                 assert result.status == QueryStatus.SUCCESS
                 assert result.total == 100
+
+    async def test_fetch_total_sends_browser_headers(self):
+        """Test that fetch_total sends proper browser-like headers."""
+        async with WBAPIClient() as client:
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.history = []
+            mock_response.text = AsyncMock(return_value='{"total": 100}')
+            mock_response.headers = {}
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            captured_kwargs = {}
+
+            def capture_get(*args, **kwargs):
+                captured_kwargs.update(kwargs)
+                return mock_response
+
+            with patch.object(client.session, "get", side_effect=capture_get):
+                await client.fetch_total("test")
+
+            # Verify browser-like headers are sent
+            sent_headers = captured_kwargs.get("headers", {})
+            assert "Referer" in sent_headers, "Referer header should be present"
+            assert "Origin" in sent_headers, "Origin header should be present"
+            assert "Sec-Fetch-Dest" in sent_headers, "Sec-Fetch-Dest header should be present"
+            assert "Sec-Fetch-Mode" in sent_headers, "Sec-Fetch-Mode header should be present"
+            assert "Sec-Fetch-Site" in sent_headers, "Sec-Fetch-Site header should be present"
+            assert sent_headers["Referer"] == "https://www.wildberries.ru/"
+            assert sent_headers["Origin"] == "https://www.wildberries.ru"
