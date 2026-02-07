@@ -173,3 +173,58 @@ class TestEndToEndCleaning:
         # Extract unique queries
         queries = cleaner.extract_unique_queries(cleaned_df)
         assert len(queries) == 2
+
+    def test_split_removed_by_reason(self, tmp_path):
+        """Test splitting removed rows by reason."""
+        # Create stop files
+        cat_file = tmp_path / "categories.txt"
+        cat_file.write_text("алкоголь\nтабак", encoding="utf-8")
+
+        words_file = tmp_path / "words.txt"
+        words_file.write_text("термо\nбио", encoding="utf-8")
+
+        # Create test data
+        data = {
+            "query": ["нормальный", "термокружка", "12345", "биойогурт", "водка"],
+            "category": ["посуда", "посуда", "товары", "еда", "алкоголь"],
+            "count": [10, 5, 3, 7, 2],
+        }
+        df = pd.DataFrame(data)
+
+        # Configure cleaner
+        config = CleaningConfig(
+            stop_categories_file=str(cat_file),
+            stop_words_file=str(words_file),
+            remove_numeric_only=True,
+            case_sensitive=False,
+        )
+
+        cleaner = DataCleaner(config)
+        cleaned_df, removed_df = cleaner.clean(df)
+
+        # Split removed by reason
+        by_categories, by_stop_words = cleaner.split_removed_by_reason(removed_df)
+
+        # Check split results
+        assert len(by_categories) == 1  # водка (категория алкоголь)
+        assert len(by_stop_words) == 2  # термокружка, биойогурт
+
+        # Verify queries
+        assert "водка" in by_categories["query"].values
+        assert "термокружка" in by_stop_words["query"].values
+        assert "биойогурт" in by_stop_words["query"].values
+
+        # Numeric-only not in either
+        assert "12345" not in by_categories["query"].values
+        assert "12345" not in by_stop_words["query"].values
+
+    def test_split_removed_empty_dataframe(self):
+        """Test split_removed_by_reason with empty DataFrame."""
+        config = CleaningConfig()
+        cleaner = DataCleaner(config)
+
+        empty_df = pd.DataFrame(columns=["query", "category", "matched_stop"])
+        by_cat, by_words = cleaner.split_removed_by_reason(empty_df)
+
+        assert len(by_cat) == 0
+        assert len(by_words) == 0
