@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from ..clean.cleaner import DataCleaner
 from ..config.settings import AppSettings
+from ..core.paths import get_resource_path
 from ..io.csv_writer import CSVWriter
 from ..io.excel_reader import ExcelReader
 from ..models.config import CleaningConfig, ParserConfig
@@ -76,8 +77,6 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
 
         # Create tab widget
-        # Note: Tab labels are set at creation time. For full language change effect,
-        # application restart is required (user is informed via dialog).
         self.tabs = QTabWidget()
         self.tabs.addTab(self._create_parsing_tab(), self.tr("tab_parsing"))
         self.tabs.addTab(self._create_settings_tab(), self.tr("tab_settings"))
@@ -155,7 +154,10 @@ class MainWindow(QMainWindow):
         if language != self.settings.language:
             self.settings.language = language
             self.settings.save()
-            # Show restart message in both languages for clarity
+            # Update tab labels dynamically
+            self.tabs.setTabText(0, self.tr("tab_parsing"))
+            self.tabs.setTabText(1, self.tr("tab_settings"))
+            # Show restart message for full UI refresh
             en_msg = "Language changed. Please restart the application for full effect."
             ru_msg = "Язык изменён. Пожалуйста, перезапустите приложение для полного применения."
             QMessageBox.information(
@@ -512,7 +514,7 @@ class MainWindow(QMainWindow):
 
                 # Save categories file
                 if len(removed_by_categories) > 0:
-                    cat_path = Path("data/removed_by_categories.csv")
+                    cat_path = get_resource_path("data/removed_by_categories.csv")
                     cat_path.parent.mkdir(parents=True, exist_ok=True)
                     cat_writer = CSVWriter(str(cat_path), encoding="utf-8-sig")
                     cat_writer.write(
@@ -525,7 +527,7 @@ class MainWindow(QMainWindow):
 
                 # Save stop words file
                 if len(removed_by_stop_words) > 0:
-                    words_path = Path("data/removed_by_stop_words.csv")
+                    words_path = get_resource_path("data/removed_by_stop_words.csv")
                     words_path.parent.mkdir(parents=True, exist_ok=True)
                     words_writer = CSVWriter(str(words_path), encoding="utf-8-sig")
                     words_writer.write(

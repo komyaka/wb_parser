@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+from ..core.paths import get_resource_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,10 +21,7 @@ class AppSettings:
                           relative to project root (config/settings.json).
         """
         if settings_file is None:
-            # Use absolute path relative to this module's location
-            # Go up: src/config/ -> src/ -> project_root/
-            project_root = Path(__file__).resolve().parent.parent.parent
-            self.settings_file = project_root / "config" / "settings.json"
+            self.settings_file = get_resource_path("config/settings.json")
         else:
             self.settings_file = Path(settings_file)
 

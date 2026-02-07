@@ -208,7 +208,8 @@ def get_text(key: str, language: str = "ru", **kwargs) -> str:
 
     Args:
         key: Translation key
-        language: Language code ("en" or "ru")
+        language: Language code ("en" or "ru"). If an unsupported language
+                 code is provided, falls back to Russian ("ru").
         **kwargs: Format arguments for the text
 
     Returns:
