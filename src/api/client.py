@@ -27,7 +27,7 @@ class WBAPIClient:
         min_delay: float = 0.5,
         max_delay: float = 1.5,
         retry_strategy: RetryStrategy | None = None,
-        user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     ):
         """
         Initialize WB API client.
@@ -67,14 +67,20 @@ class WBAPIClient:
             Full API URL
         """
         params = {
+            "ab_testing": "false",
             "appType": "1",
             "curr": "rub",
-            "dest": "-1257786",
+            "dest": "-1586361",
+            "hide_dtype": "11",
+            "inheritFilters": "false",
+            "lang": "ru",
+            "page": "1",
             "query": query,
             "resultset": "catalog",
             "sort": "popular",
             "spp": "30",
             "suppressSpellcheck": "false",
+            "uclusters": "2",
         }
 
         return f"{self.API_ENDPOINT}?{urlencode(params)}"

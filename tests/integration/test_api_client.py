@@ -1,10 +1,9 @@
 """Integration tests for API client."""
 
-import pytest
 import asyncio
-import json
-from unittest.mock import Mock, AsyncMock, patch
-from aiohttp import ClientSession, ClientResponse
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.api.client import WBAPIClient
 from src.api.retry import RetryStrategy
@@ -23,6 +22,11 @@ class TestWBAPIClient:
         assert "wildberries.ru" in url
         assert "query=тест+запрос" in url or "query=%D1%82%D0%B5%D1%81%D1%82" in url
         assert "appType=1" in url
+        assert "dest=-1586361" in url
+        assert "ab_testing=false" in url
+        assert "lang=ru" in url
+        assert "page=1" in url
+        assert "uclusters=2" in url
 
     async def test_fetch_total_success(self):
         """Test successful fetch with total field."""
