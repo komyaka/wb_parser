@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.api.client import WBAPIClient
+from src.api.retry import RetryStrategy
 from src.models.query import QueryResult, QueryStatus
 
 
@@ -106,12 +107,17 @@ async def run_parse(
     start_time = datetime.now()
     action_logger.info(f"Query to parse: '{query}'")
 
-    # Initialize API client
+    # Initialize API client with custom retry strategy for rate limiting
     action_logger.info("Initializing WB API client")
-    action_logger.debug("Creating WBAPIClient with default settings")
+    retry_strategy = RetryStrategy(max_retries=7, base_delay=3.0)
+    action_logger.debug(
+        f"Creating WBAPIClient with custom retry strategy "
+        f"(max_retries={retry_strategy.max_retries}, "
+        f"base_delay={retry_strategy.base_delay}s)"
+    )
 
     try:
-        async with WBAPIClient() as client:
+        async with WBAPIClient(retry_strategy=retry_strategy) as client:
             action_logger.debug("API client initialized successfully")
             action_logger.info("Building request URL")
 

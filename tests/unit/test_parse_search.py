@@ -229,6 +229,42 @@ class TestRunParse:
             assert "Total: 500" in result_log
             assert "Retry Count: 1" in result_log
 
+    @pytest.mark.asyncio
+    async def test_run_parse_uses_custom_retry_strategy(self, tmp_path):
+        """Test that run_parse uses custom retry strategy with correct parameters."""
+        log_dir = tmp_path / "test_logs"
+        action_logger, result_logger = setup_logging(log_dir)
+
+        mock_result = QueryResult(
+            query="test query",
+            total=100,
+            status=QueryStatus.SUCCESS,
+            retry_count=0,
+        )
+
+        # Mock WBAPIClient and capture the retry_strategy parameter
+        with patch("parse_search.WBAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client._build_url = MagicMock(return_value="https://example.com")
+            mock_client.fetch_total = AsyncMock(return_value=mock_result)
+            mock_client_class.return_value = mock_client
+
+            await run_parse("test query", action_logger, result_logger)
+
+            # Verify WBAPIClient was called with custom retry strategy
+            mock_client_class.assert_called_once()
+            call_kwargs = mock_client_class.call_args.kwargs
+
+            # Check that retry_strategy parameter was passed
+            assert "retry_strategy" in call_kwargs
+
+            # Verify retry_strategy has correct configuration
+            retry_strategy = call_kwargs["retry_strategy"]
+            assert retry_strategy.max_retries == 7
+            assert retry_strategy.base_delay == 3.0
+
 
 class TestParseArgs:
     """Test command-line argument parsing."""
