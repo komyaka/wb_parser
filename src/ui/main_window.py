@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.setup_logging()
-        
+
         # Apply detailed logging setting if enabled
         if self.settings.detailed_logging:
             self._apply_detailed_logging()
@@ -594,9 +594,7 @@ class MainWindow(QMainWindow):
                         removed_by_categories.to_dict("records"),
                         list(removed_by_categories.columns),
                     )
-                    self.log_message(
-                        self.tr("msg_saved_categories", path=str(cat_path)), "SUCCESS"
-                    )
+                    self.log_message(self.tr("msg_saved_categories", path=str(cat_path)), "SUCCESS")
 
                 # Save stop words file
                 if len(removed_by_stop_words) > 0:
@@ -626,9 +624,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading data: {e}", exc_info=True)
             self.log_message(f"Error: {str(e)}", "ERROR")
-            QMessageBox.critical(
-                self, self.tr("dialog_error"), f"Failed to load data:\n{str(e)}"
-            )
+            QMessageBox.critical(self, self.tr("dialog_error"), f"Failed to load data:\n{str(e)}")
 
     def _update_preview(self):
         """Update data preview table."""
@@ -652,9 +648,7 @@ class MainWindow(QMainWindow):
             # Validate config
             errors = self.parser_config.validate()
             if errors:
-                QMessageBox.warning(
-                    self, self.tr("dialog_config_error"), "\n".join(errors)
-                )
+                QMessageBox.warning(self, self.tr("dialog_config_error"), "\n".join(errors))
                 return
 
             self.log_message(self.tr("msg_starting"))
@@ -869,9 +863,7 @@ class MainWindow(QMainWindow):
                     removed_fieldnames = list(self.removed_data.columns)
                     removed_writer.write(removed_data_list, removed_fieldnames)
 
-                    self.log_message(
-                        self.tr("msg_exported_removed", path=removed_path), "SUCCESS"
-                    )
+                    self.log_message(self.tr("msg_exported_removed", path=removed_path), "SUCCESS")
 
                 QMessageBox.information(
                     self, self.tr("dialog_success"), self.tr("dialog_export_success")
@@ -880,6 +872,4 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error exporting CSV: {e}", exc_info=True)
             self.log_message(self.tr("msg_export_error", error=str(e)), "ERROR")
-            QMessageBox.critical(
-                self, self.tr("dialog_error"), f"Failed to export:\n{str(e)}"
-            )
+            QMessageBox.critical(self, self.tr("dialog_error"), f"Failed to export:\n{str(e)}")

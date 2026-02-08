@@ -339,7 +339,7 @@ MIT License
 - Python 3.10+
 - PySide6 (Qt для Python)
 - pandas & openpyxl
-- aiohttp
+- Playwright
 - SQLite
 
 ---
@@ -684,7 +684,7 @@ Developed with:
 - Python 3.10+
 - PySide6 (Qt for Python)
 - pandas & openpyxl
-- aiohttp
+- Playwright
 - SQLite
 
 ---

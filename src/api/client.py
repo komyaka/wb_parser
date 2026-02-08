@@ -8,7 +8,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from urllib.parse import urlencode
 
-import aiohttp
+from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
+from playwright.async_api import Error as PlaywrightError
 
 from ..models.query import QueryResult, QueryStatus
 from .retry import RetryStrategy
@@ -44,24 +45,48 @@ class WBAPIClient:
             rate_limit_callback: Async callback to invoke when rate limited (498/429)
             rate_limit_wait: Async callback to wait for global rate limit to be lifted
         """
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.timeout_seconds = timeout
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.retry_strategy = retry_strategy or RetryStrategy()
         self.user_agent = user_agent
         self.rate_limit_callback = rate_limit_callback
         self.rate_limit_wait = rate_limit_wait
-        self.session: aiohttp.ClientSession | None = None
+        self.playwright: Playwright | None = None
+        self.browser: Browser | None = None
+        self.context: BrowserContext | None = None
 
     async def __aenter__(self):
         """Async context manager entry."""
-        self.session = aiohttp.ClientSession(timeout=self.timeout)
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=True)
+        self.context = await self.browser.new_context(
+            user_agent=self.user_agent,
+            extra_http_headers={
+                "Accept": "*/*",
+                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://www.wildberries.ru/",
+                "Origin": "https://www.wildberries.ru",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        if self.session:
-            await self.session.close()
+        if self.context:
+            await self.context.close()
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
 
     def _build_url(self, query: str) -> str:
         """
@@ -125,26 +150,10 @@ class WBAPIClient:
         Returns:
             QueryResult with total field or error
         """
-        if not self.session:
-            raise RuntimeError("Client session not initialized. Use async context manager.")
+        if not self.context:
+            raise RuntimeError("Client context not initialized. Use async context manager.")
 
         url = self._build_url(query)
-        headers = {
-            "User-Agent": self.user_agent,
-            "Accept": "*/*",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Referer": "https://www.wildberries.ru/",
-            "Origin": "https://www.wildberries.ru",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Connection": "keep-alive",
-            "X-Requested-With": "XMLHttpRequest",
-        }
 
         result = QueryResult(query=query)
         attempt = 0
@@ -156,98 +165,102 @@ class WBAPIClient:
             try:
                 logger.debug(f"Fetching query '{query}' (attempt {attempt + 1})")
 
-                async with self.session.get(url, headers=headers) as response:
-                    # Debug logging for troubleshooting bot detection issues
-                    logger.debug(f"Request to URL: {url}")
-                    logger.debug(
-                        f"Response status: {response.status}, "
-                        f"headers: {dict(response.headers)}"
-                    )
-                    # Check for redirects (usually means blocked or invalid)
-                    if response.history:
+                # Make request using Playwright's APIRequestContext
+                timeout_ms = int(self.timeout_seconds * 1000)
+                response = await self.context.request.get(
+                    url,
+                    timeout=timeout_ms,
+                )
+
+                # Debug logging for troubleshooting bot detection issues
+                logger.debug(f"Request to URL: {url}")
+                logger.debug(
+                    f"Response status: {response.status}, " f"headers: {dict(response.headers)}"
+                )
+
+                # Check for redirects (compare response URL with original)
+                if response.url != url:
+                    result.status = QueryStatus.FAILED
+                    result.error_message = "Request was redirected"
+                    logger.warning(f"Query '{query}' was redirected")
+                    return result
+
+                # Check status code
+                if response.status in (429, 498):
+                    # Rate limited - trigger global backoff if callback provided
+                    logger.warning(f"Rate limited (HTTP {response.status}) for query '{query}'")
+
+                    if self.rate_limit_callback:
+                        await self.rate_limit_callback()
+
+                    if self.retry_strategy.should_retry(attempt):
+                        retry_after = self._parse_retry_after(response.headers)
+                        await self.retry_strategy.wait(attempt, retry_after)
+                        # Wait for global rate limit to be lifted before retrying
+                        if self.rate_limit_wait:
+                            await self.rate_limit_wait()
+                        attempt += 1
+                        continue
+                    else:
                         result.status = QueryStatus.FAILED
-                        result.error_message = "Request was redirected"
-                        logger.warning(f"Query '{query}' was redirected")
+                        result.error_message = f"Rate limited ({response.status})"
+                        result.retry_count = attempt
                         return result
 
-                    # Check status code
-                    if response.status in (429, 498):
-                        # Rate limited - trigger global backoff if callback provided
-                        logger.warning(f"Rate limited (HTTP {response.status}) for query '{query}'")
+                elif response.status >= 500:
+                    # Server error
+                    logger.warning(f"Server error {response.status} for query '{query}'")
 
-                        if self.rate_limit_callback:
-                            await self.rate_limit_callback()
-
-                        if self.retry_strategy.should_retry(attempt):
-                            retry_after = self._parse_retry_after(response.headers)
-                            await self.retry_strategy.wait(attempt, retry_after)
-                            # Wait for global rate limit to be lifted before retrying
-                            if self.rate_limit_wait:
-                                await self.rate_limit_wait()
-                            attempt += 1
-                            continue
-                        else:
-                            result.status = QueryStatus.FAILED
-                            result.error_message = f"Rate limited ({response.status})"
-                            result.retry_count = attempt
-                            return result
-
-                    elif response.status >= 500:
-                        # Server error
-                        logger.warning(f"Server error {response.status} for query '{query}'")
-
-                        if self.retry_strategy.should_retry(attempt):
-                            await self.retry_strategy.wait(attempt)
-                            attempt += 1
-                            continue
-                        else:
-                            result.status = QueryStatus.FAILED
-                            result.error_message = f"Server error ({response.status})"
-                            result.retry_count = attempt
-                            return result
-
-                    elif response.status != 200:
-                        # Other error
+                    if self.retry_strategy.should_retry(attempt):
+                        await self.retry_strategy.wait(attempt)
+                        attempt += 1
+                        continue
+                    else:
                         result.status = QueryStatus.FAILED
-                        result.error_message = f"HTTP {response.status}"
-                        logger.warning(f"HTTP {response.status} for query '{query}'")
+                        result.error_message = f"Server error ({response.status})"
+                        result.retry_count = attempt
                         return result
 
-                    # Parse JSON response
-                    try:
-                        text = await response.text()
+                elif response.status != 200:
+                    # Other error
+                    result.status = QueryStatus.FAILED
+                    result.error_message = f"HTTP {response.status}"
+                    logger.warning(f"HTTP {response.status} for query '{query}'")
+                    return result
 
-                        if not text or text.strip() == "":
-                            result.status = QueryStatus.FAILED
-                            result.error_message = "Empty response"
-                            return result
+                # Parse JSON response
+                try:
+                    text = await response.text()
 
-                        data = json.loads(text)
-
-                        # Extract 'total' field
-                        if "total" in data:
-                            result.total = int(data["total"])
-                            result.status = QueryStatus.SUCCESS
-                            result.fetched_at = datetime.now()
-                            result.retry_count = attempt
-                            logger.info(
-                                f"Successfully fetched query '{query}': total={result.total}"
-                            )
-                        else:
-                            result.status = QueryStatus.FAILED
-                            result.error_message = "No 'total' field in response"
-                            logger.warning(f"No 'total' field for query '{query}'")
-
-                        # Optionally store raw response
-                        result.raw_response = text[:500]  # Limit size
-
-                        return result
-
-                    except json.JSONDecodeError as e:
+                    if not text or text.strip() == "":
                         result.status = QueryStatus.FAILED
-                        result.error_message = f"Invalid JSON: {str(e)}"
-                        logger.error(f"JSON decode error for query '{query}': {e}")
+                        result.error_message = "Empty response"
                         return result
+
+                    data = json.loads(text)
+
+                    # Extract 'total' field
+                    if "total" in data:
+                        result.total = int(data["total"])
+                        result.status = QueryStatus.SUCCESS
+                        result.fetched_at = datetime.now()
+                        result.retry_count = attempt
+                        logger.info(f"Successfully fetched query '{query}': total={result.total}")
+                    else:
+                        result.status = QueryStatus.FAILED
+                        result.error_message = "No 'total' field in response"
+                        logger.warning(f"No 'total' field for query '{query}'")
+
+                    # Optionally store raw response
+                    result.raw_response = text[:500]  # Limit size
+
+                    return result
+
+                except json.JSONDecodeError as e:
+                    result.status = QueryStatus.FAILED
+                    result.error_message = f"Invalid JSON: {str(e)}"
+                    logger.error(f"JSON decode error for query '{query}': {e}")
+                    return result
 
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout for query '{query}' (attempt {attempt + 1})")
@@ -262,8 +275,8 @@ class WBAPIClient:
                     result.retry_count = attempt
                     return result
 
-            except aiohttp.ClientError as e:
-                logger.error(f"Client error for query '{query}': {e}")
+            except PlaywrightError as e:
+                logger.error(f"Playwright error for query '{query}': {e}")
 
                 if self.retry_strategy.should_retry(attempt):
                     await self.retry_strategy.wait(attempt)
@@ -271,7 +284,7 @@ class WBAPIClient:
                     continue
                 else:
                     result.status = QueryStatus.FAILED
-                    result.error_message = f"Client error: {str(e)}"
+                    result.error_message = f"Playwright error: {str(e)}"
                     result.retry_count = attempt
                     return result
 
