@@ -233,47 +233,48 @@ class TestWBAPIClient:
     async def test_context_headers_set_correctly(self):
         """Test that browser-like headers are set at context initialization."""
         client = WBAPIClient()
-        
+
         # Mock playwright, browser, and new_context
         mock_playwright = AsyncMock()
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
-        
+
         with patch("src.api.client.async_playwright") as mock_async_pw:
             mock_pw_manager = AsyncMock()
             mock_pw_manager.start = AsyncMock(return_value=mock_playwright)
             mock_async_pw.return_value = mock_pw_manager
-            
+
             mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
             mock_browser.new_context = AsyncMock(return_value=mock_context)
-            
-            # Enter context
+
+            # Enter and exit context to ensure proper cleanup
             await client.__aenter__()
-            
-            # Verify new_context was called with browser headers
-            mock_browser.new_context.assert_called_once()
-            call_kwargs = mock_browser.new_context.call_args.kwargs
-            
-            assert "extra_http_headers" in call_kwargs
-            headers = call_kwargs["extra_http_headers"]
-            
-            # Verify critical browser-like headers are present
-            assert "Referer" in headers
-            assert headers["Referer"] == "https://www.wildberries.ru/"
-            assert "Origin" in headers
-            assert headers["Origin"] == "https://www.wildberries.ru"
-            assert "Sec-Fetch-Dest" in headers
-            assert headers["Sec-Fetch-Dest"] == "empty"
-            assert "Sec-Fetch-Mode" in headers
-            assert headers["Sec-Fetch-Mode"] == "cors"
-            assert "Sec-Fetch-Site" in headers
-            assert headers["Sec-Fetch-Site"] == "same-origin"
-            assert "X-Requested-With" in headers
-            assert headers["X-Requested-With"] == "XMLHttpRequest"
-            
-            # Verify user agent is set
-            assert "user_agent" in call_kwargs
-            assert "Chrome" in call_kwargs["user_agent"]
+            try:
+                # Verify new_context was called with browser headers
+                mock_browser.new_context.assert_called_once()
+                call_kwargs = mock_browser.new_context.call_args.kwargs
+
+                assert "extra_http_headers" in call_kwargs
+                headers = call_kwargs["extra_http_headers"]
+
+                # Verify critical browser-like headers are present
+                expected_headers = {
+                    "Referer": "https://www.wildberries.ru/",
+                    "Origin": "https://www.wildberries.ru",
+                    "Sec-Fetch-Dest": "empty",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Site": "same-origin",
+                    "X-Requested-With": "XMLHttpRequest",
+                }
+                for key, value in expected_headers.items():
+                    assert key in headers, f"Missing header: {key}"
+                    assert headers[key] == value, f"Wrong value for {key}"
+
+                # Verify user agent is set
+                assert "user_agent" in call_kwargs
+                assert "Chrome" in call_kwargs["user_agent"]
+            finally:
+                await client.__aexit__(None, None, None)
 
     async def test_fetch_total_sends_browser_headers(self):
         """Test that fetch_total sends proper browser-like headers via context."""
