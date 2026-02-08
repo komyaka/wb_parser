@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from urllib.parse import urlencode
 
@@ -97,7 +97,7 @@ class WBAPIClient:
         delay = random.uniform(self.min_delay, self.max_delay)
         await asyncio.sleep(delay)
 
-    def _parse_retry_after(self, headers: dict[str, str]) -> float | None:
+    def _parse_retry_after(self, headers: Mapping[str, str]) -> float | None:
         """
         Parse Retry-After header.
 
@@ -131,8 +131,19 @@ class WBAPIClient:
         url = self._build_url(query)
         headers = {
             "User-Agent": self.user_agent,
-            "Accept": "application/json",
-            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+            "Accept": "*/*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": "https://www.wildberries.ru/",
+            "Origin": "https://www.wildberries.ru",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Connection": "keep-alive",
+            "X-Requested-With": "XMLHttpRequest",
         }
 
         result = QueryResult(query=query)
@@ -146,6 +157,12 @@ class WBAPIClient:
                 logger.debug(f"Fetching query '{query}' (attempt {attempt + 1})")
 
                 async with self.session.get(url, headers=headers) as response:
+                    # Debug logging for troubleshooting bot detection issues
+                    logger.debug(f"Request to URL: {url}")
+                    logger.debug(
+                        f"Response status: {response.status}, "
+                        f"headers: {dict(response.headers)}"
+                    )
                     # Check for redirects (usually means blocked or invalid)
                     if response.history:
                         result.status = QueryStatus.FAILED
