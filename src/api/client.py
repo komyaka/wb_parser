@@ -166,7 +166,7 @@ class WBAPIClient:
                 logger.debug(f"Fetching query '{query}' (attempt {attempt + 1})")
 
                 # Make request using Playwright's APIRequestContext
-                timeout_ms = int(self.timeout_seconds * 1000)
+                timeout_ms = round(self.timeout_seconds * 1000)
                 response = await self.context.request.get(
                     url,
                     timeout=timeout_ms,
