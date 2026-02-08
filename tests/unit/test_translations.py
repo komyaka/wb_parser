@@ -7,8 +7,7 @@ import pytest
 
 # Import translations module directly to avoid PySide6 dependency
 spec = importlib.util.spec_from_file_location(
-    "translations",
-    Path(__file__).parent.parent.parent / "src" / "ui" / "translations.py"
+    "translations", Path(__file__).parent.parent.parent / "src" / "ui" / "translations.py"
 )
 translations_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(translations_module)

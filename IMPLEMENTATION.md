@@ -40,7 +40,7 @@
 ```
 wb_parser/
 ├── src/
-│   ├── api/           # WB API клиент (aiohttp, retry/backoff)
+│   ├── api/           # WB API клиент (Playwright, retry/backoff)
 │   ├── clean/         # Очистка данных (стоп-слова/категории)
 │   ├── config/        # Управление конфигурацией
 │   ├── core/          # Конвейер, кэш, контрольные точки
@@ -71,7 +71,7 @@ wb_parser/
 - Отдельный экспорт в CSV удаленных строк с причинами
 
 #### 3. Интеграция с API Wildberries
-- Асинхронная/параллельная обработка с aiohttp
+- Асинхронная/параллельная обработка с Playwright
 - Настраиваемая параллельность (1-20, по умолчанию: 4)
 - Случайные задержки между запросами (по умолчанию 0.5-1.5с)
 - Экспоненциальная задержка с джиттером
@@ -130,7 +130,7 @@ wb_parser/
 - Параметрические тесты где применимо
 
 ### Зависимости
-- **Основные**: Python 3.10+, pandas, openpyxl, aiohttp
+- **Основные**: Python 3.10+, pandas, openpyxl, Playwright
 - **GUI**: PySide6
 - **Тестирование**: pytest, pytest-asyncio, pytest-cov
 - **Качество**: black, ruff, mypy
@@ -327,7 +327,7 @@ Complete desktop application for parsing Wildberries search data with GUI, data 
 ```
 wb_parser/
 ├── src/
-│   ├── api/           # WB API client (aiohttp, retry/backoff)
+│   ├── api/           # WB API client (Playwright, retry/backoff)
 │   ├── clean/         # Data cleaning (stop words/categories)
 │   ├── config/        # Configuration management
 │   ├── core/          # Pipeline, cache, checkpoints
@@ -358,7 +358,7 @@ wb_parser/
 - Separate CSV export for removed rows with reasons
 
 #### 3. Wildberries API Integration
-- Async/concurrent processing with aiohttp
+- Async/concurrent processing with Playwright
 - Configurable concurrency (1-20, default: 4)
 - Random delays between requests (0.5-1.5s default)
 - Exponential backoff with jitter
@@ -417,7 +417,7 @@ wb_parser/
 - Parametric tests where applicable
 
 ### Dependencies
-- **Core**: Python 3.10+, pandas, openpyxl, aiohttp
+- **Core**: Python 3.10+, pandas, openpyxl, Playwright
 - **GUI**: PySide6
 - **Testing**: pytest, pytest-asyncio, pytest-cov
 - **Quality**: black, ruff, mypy

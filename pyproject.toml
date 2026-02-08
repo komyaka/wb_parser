@@ -60,7 +60,7 @@ module = "openpyxl.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "aiohttp.*"
+module = "playwright.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
