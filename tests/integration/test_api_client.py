@@ -4,10 +4,36 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
 
 from src.api.client import WBAPIClient
 from src.api.retry import RetryStrategy
 from src.models.query import QueryStatus
+
+
+@pytest_asyncio.fixture
+async def mock_client():
+    """Create a WBAPIClient with mocked Playwright."""
+    with patch("src.api.client.async_playwright") as mock_pw:
+        mock_playwright = AsyncMock()
+        mock_context = AsyncMock()
+        mock_page = AsyncMock()
+
+        mock_pw_cm = AsyncMock()
+        mock_pw_cm.start = AsyncMock(return_value=mock_playwright)
+        mock_pw.return_value = mock_pw_cm
+
+        mock_playwright.chromium.launch_persistent_context = AsyncMock(return_value=mock_context)
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_page.goto = AsyncMock()
+        mock_page.evaluate = AsyncMock()
+        mock_context.close = AsyncMock()
+        mock_page.close = AsyncMock()
+
+        client = WBAPIClient()
+        await client.__aenter__()
+        yield client
+        await client.__aexit__(None, None, None)
 
 
 @pytest.mark.asyncio
@@ -29,140 +55,138 @@ class TestWBAPIClient:
         assert "page=1" in url
         assert "uclusters=2" in url
 
-    async def test_fetch_total_success(self):
+    async def test_fetch_total_success(self, mock_client):
         """Test successful fetch with total field."""
-        async with WBAPIClient() as client:
-            # Mock the context.request.get method
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            # URL should match the one built by _build_url()
-            mock_response.url = client._build_url("test")
-            mock_response.text = AsyncMock(return_value='{"total": 12345}')
-            mock_response.headers = {}
+        client = mock_client
+        url = client._build_url("test")
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        # Mock page.evaluate to return successful response
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 200, "url": url, "text": '{"total": 12345}', "headers": {}}
+        )
 
-                assert result.query == "test"
-                assert result.total == 12345
-                assert result.status == QueryStatus.SUCCESS
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_no_total_field(self):
+        assert result.query == "test"
+        assert result.total == 12345
+        assert result.status == QueryStatus.SUCCESS
+
+    async def test_fetch_total_no_total_field(self, mock_client):
         """Test response without total field."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.url = client._build_url("test")
-            mock_response.text = AsyncMock(return_value='{"data": []}')
-            mock_response.headers = {}
+        client = mock_client
+        url = client._build_url("test")
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 200, "url": url, "text": '{"data": []}', "headers": {}}
+        )
 
-                assert result.status == QueryStatus.FAILED
-                assert "No 'total' field" in result.error_message
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_invalid_json(self):
+        assert result.status == QueryStatus.FAILED
+        assert "No 'total' field" in result.error_message
+
+    async def test_fetch_total_invalid_json(self, mock_client):
         """Test response with invalid JSON."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.url = client._build_url("test")
-            mock_response.text = AsyncMock(return_value="not json")
-            mock_response.headers = {}
+        client = mock_client
+        url = client._build_url("test")
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 200, "url": url, "text": "not json", "headers": {}}
+        )
 
-                assert result.status == QueryStatus.FAILED
-                assert "Invalid JSON" in result.error_message
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_empty_response(self):
+        assert result.status == QueryStatus.FAILED
+        assert "Invalid JSON" in result.error_message
+
+    async def test_fetch_total_empty_response(self, mock_client):
         """Test empty response."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.url = client._build_url("test")
-            mock_response.text = AsyncMock(return_value="")
-            mock_response.headers = {}
+        client = mock_client
+        url = client._build_url("test")
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 200, "url": url, "text": "", "headers": {}}
+        )
 
-                assert result.status == QueryStatus.FAILED
-                assert "Empty response" in result.error_message
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_redirected(self):
+        assert result.status == QueryStatus.FAILED
+        assert "Empty response" in result.error_message
+
+    async def test_fetch_total_redirected(self, mock_client):
         """Test redirected request."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            # Different URL indicates redirect
-            mock_response.url = "https://www.wildberries.ru/different-page"
-            mock_response.headers = {}
+        client = mock_client
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={
+                "status": 200,
+                "url": "https://www.wildberries.ru/different-page",
+                "text": '{"total": 100}',
+                "headers": {},
+            }
+        )
 
-                assert result.status == QueryStatus.FAILED
-                assert "redirected" in result.error_message.lower()
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_http_error(self):
+        assert result.status == QueryStatus.FAILED
+        assert "redirected" in result.error_message.lower()
+
+    async def test_fetch_total_http_error(self, mock_client):
         """Test HTTP error response."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 404
-            mock_response.url = client._build_url("test")
-            mock_response.headers = {}
+        client = mock_client
+        url = client._build_url("test")
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 404, "url": url, "text": "", "headers": {}}
+        )
 
-                assert result.status == QueryStatus.FAILED
-                assert "404" in result.error_message
+        result = await client.fetch_total("test")
 
-    async def test_fetch_total_rate_limited_no_retry(self):
+        assert result.status == QueryStatus.FAILED
+        assert "404" in result.error_message
+
+    async def test_fetch_total_rate_limited_no_retry(self, mock_client):
         """Test rate limiting without retries."""
-        retry_strategy = RetryStrategy(max_retries=0)
+        client = mock_client
+        client.retry_strategy = RetryStrategy(max_retries=0)
+        url = client._build_url("test")
 
-        async with WBAPIClient(retry_strategy=retry_strategy) as client:
-            mock_response = AsyncMock()
-            mock_response.status = 429
-            mock_response.url = client._build_url("test")
-            mock_response.headers = {}
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 429, "url": url, "text": "", "headers": {}}
+        )
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        result = await client.fetch_total("test")
 
-                assert result.status == QueryStatus.FAILED
-                assert "429" in result.error_message
+        assert result.status == QueryStatus.FAILED
+        assert "429" in result.error_message
 
-    async def test_fetch_total_498_retries(self):
+    async def test_fetch_total_498_retries(self, mock_client):
         """Test HTTP 498 triggers retry logic."""
-        retry_strategy = RetryStrategy(max_retries=0)
+        client = mock_client
+        client.retry_strategy = RetryStrategy(max_retries=0)
+        url = client._build_url("test")
 
-        async with WBAPIClient(retry_strategy=retry_strategy) as client:
-            mock_response = AsyncMock()
-            mock_response.status = 498
-            mock_response.url = client._build_url("test")
-            mock_response.headers = {}
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 498, "url": url, "text": "", "headers": {}}
+        )
 
-            with patch.object(client.context.request, "get", return_value=mock_response):
-                result = await client.fetch_total("test")
+        result = await client.fetch_total("test")
 
-                assert result.status == QueryStatus.FAILED
-                assert "498" in result.error_message
+        assert result.status == QueryStatus.FAILED
+        assert "498" in result.error_message
 
-    async def test_fetch_total_timeout(self):
+    async def test_fetch_total_timeout(self, mock_client):
         """Test timeout handling."""
-        retry_strategy = RetryStrategy(max_retries=1)
-        async with WBAPIClient(timeout=0.001, retry_strategy=retry_strategy) as client:
-            # Mock to raise timeout
-            with patch.object(client.context.request, "get", side_effect=asyncio.TimeoutError()):
-                result = await client.fetch_total("test")
+        client = mock_client
+        client.retry_strategy = RetryStrategy(max_retries=1)
 
-                assert result.status == QueryStatus.FAILED
-                assert "Timeout" in result.error_message or result.retry_count >= 1
+        # Mock page.evaluate to raise TimeoutError
+        mock_client.page.evaluate = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        result = await client.fetch_total("test")
+
+        assert result.status == QueryStatus.FAILED
+        assert "Timeout" in result.error_message or result.retry_count >= 1
 
     async def test_parse_retry_after_header(self):
         """Test parsing Retry-After header."""
@@ -193,9 +217,10 @@ class TestWBAPIClient:
 
         assert 0.01 <= elapsed <= 0.03  # Allow small margin
 
-    async def test_fetch_total_rate_limited_waits_for_global(self):
+    async def test_fetch_total_rate_limited_waits_for_global(self, mock_client):
         """Test that when rate_limit_wait is provided, it is called during retry after rate limiting."""
-        retry_strategy = RetryStrategy(max_retries=1, base_delay=0.01)
+        client = mock_client
+        client.retry_strategy = RetryStrategy(max_retries=1, base_delay=0.01)
 
         # Track calls
         rate_limit_wait_called = False
@@ -204,55 +229,58 @@ class TestWBAPIClient:
             nonlocal rate_limit_wait_called
             rate_limit_wait_called = True
 
-        async with WBAPIClient(
-            retry_strategy=retry_strategy, rate_limit_wait=mock_rate_limit_wait
-        ) as client:
-            # First response: rate limited (498)
-            # Second response: success
-            mock_response_498 = AsyncMock()
-            mock_response_498.status = 498
-            mock_response_498.url = client._build_url("test")
-            mock_response_498.headers = {}
+        client.rate_limit_wait = mock_rate_limit_wait
 
-            mock_response_200 = AsyncMock()
-            mock_response_200.status = 200
-            mock_response_200.url = client._build_url("test")
-            mock_response_200.text = AsyncMock(return_value='{"total": 100}')
-            mock_response_200.headers = {}
+        url = client._build_url("test")
 
-            with patch.object(
-                client.context.request, "get", side_effect=[mock_response_498, mock_response_200]
-            ):
-                result = await client.fetch_total("test")
+        # First response: rate limited (498)
+        # Second response: success
+        response_498 = {"status": 498, "url": url, "text": "", "headers": {}}
 
-                # Verify rate_limit_wait was called
-                assert rate_limit_wait_called, "rate_limit_wait should be called after rate limit"
-                assert result.status == QueryStatus.SUCCESS
-                assert result.total == 100
+        response_200 = {"status": 200, "url": url, "text": '{"total": 100}', "headers": {}}
+
+        mock_client.page.evaluate = AsyncMock(side_effect=[response_498, response_200])
+
+        result = await client.fetch_total("test")
+
+        # Verify rate_limit_wait was called
+        assert rate_limit_wait_called, "rate_limit_wait should be called after rate limit"
+        assert result.status == QueryStatus.SUCCESS
+        assert result.total == 100
 
     async def test_context_headers_set_correctly(self):
         """Test that browser-like headers are set at context initialization."""
         client = WBAPIClient()
 
-        # Mock playwright, browser, and new_context
+        # Mock playwright and launch_persistent_context
         mock_playwright = AsyncMock()
-        mock_browser = AsyncMock()
         mock_context = AsyncMock()
+        mock_page = AsyncMock()
 
         with patch("src.api.client.async_playwright") as mock_async_pw:
             mock_pw_manager = AsyncMock()
             mock_pw_manager.start = AsyncMock(return_value=mock_playwright)
             mock_async_pw.return_value = mock_pw_manager
 
-            mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_playwright.chromium.launch_persistent_context = AsyncMock(
+                return_value=mock_context
+            )
+            mock_context.new_page = AsyncMock(return_value=mock_page)
+            mock_page.goto = AsyncMock()
+            mock_context.close = AsyncMock()
+            mock_page.close = AsyncMock()
 
             # Enter and exit context to ensure proper cleanup
             await client.__aenter__()
             try:
-                # Verify new_context was called with browser headers
-                mock_browser.new_context.assert_called_once()
-                call_kwargs = mock_browser.new_context.call_args.kwargs
+                # Verify launch_persistent_context was called with browser headers
+                mock_playwright.chromium.launch_persistent_context.assert_called_once()
+                call_args = mock_playwright.chromium.launch_persistent_context.call_args
+
+                # First positional arg should be profile_dir
+                assert len(call_args.args) > 0
+
+                call_kwargs = call_args.kwargs
 
                 assert "extra_http_headers" in call_kwargs
                 headers = call_kwargs["extra_http_headers"]
@@ -276,22 +304,21 @@ class TestWBAPIClient:
             finally:
                 await client.__aexit__(None, None, None)
 
-    async def test_fetch_total_sends_browser_headers(self):
-        """Test that fetch_total sends proper browser-like headers via context."""
-        async with WBAPIClient() as client:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.url = client._build_url("test")
-            mock_response.text = AsyncMock(return_value='{"total": 100}')
-            mock_response.headers = {}
+    async def test_fetch_total_sends_browser_headers(self, mock_client):
+        """Test that fetch_total uses in-page fetch (page.evaluate)."""
+        client = mock_client
+        url = client._build_url("test")
 
-            # Playwright's context.request automatically includes headers set in new_context
-            # So we just need to verify the request was made
-            with patch.object(
-                client.context.request, "get", return_value=mock_response
-            ) as mock_get:
-                await client.fetch_total("test")
+        mock_client.page.evaluate = AsyncMock(
+            return_value={"status": 200, "url": url, "text": '{"total": 100}', "headers": {}}
+        )
 
-                # Verify get was called
-                mock_get.assert_called_once()
-                # Note: Headers are set at context level in __aenter__, not per-request
+        await client.fetch_total("test")
+
+        # Verify evaluate was called (in-page fetch)
+        mock_client.page.evaluate.assert_called()
+        # Verify it was called with JavaScript code and URL
+        call_args = mock_client.page.evaluate.call_args
+        assert len(call_args.args) == 2  # js_code and url
+        assert "fetch" in call_args.args[0]  # JavaScript contains fetch call
+        assert call_args.args[1] == url  # URL is passed as second parameter

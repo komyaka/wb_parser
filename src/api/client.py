@@ -4,11 +4,13 @@ import asyncio
 import json
 import logging
 import random
+import shutil
+import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from urllib.parse import urlencode
 
-from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
+from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 from playwright.async_api import Error as PlaywrightError
 
 from ..models.query import QueryResult, QueryStatus
@@ -32,6 +34,7 @@ class WBAPIClient:
         user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         rate_limit_callback: Callable[[], Awaitable[None]] | None = None,
         rate_limit_wait: Callable[[], Awaitable[None]] | None = None,
+        profile_dir: str | None = None,
     ):
         """
         Initialize WB API client.
@@ -44,6 +47,7 @@ class WBAPIClient:
             user_agent: User-Agent header
             rate_limit_callback: Async callback to invoke when rate limited (498/429)
             rate_limit_wait: Async callback to wait for global rate limit to be lifted
+            profile_dir: Browser profile directory for persistent cookies (uses temp dir if None)
         """
         self.timeout_seconds = timeout
         self.min_delay = min_delay
@@ -52,15 +56,20 @@ class WBAPIClient:
         self.user_agent = user_agent
         self.rate_limit_callback = rate_limit_callback
         self.rate_limit_wait = rate_limit_wait
+        self._profile_dir_temp = profile_dir is None
+        self.profile_dir = profile_dir or tempfile.mkdtemp()
         self.playwright: Playwright | None = None
-        self.browser: Browser | None = None
         self.context: BrowserContext | None = None
+        self.page: Page | None = None
 
     async def __aenter__(self):
         """Async context manager entry."""
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=True)
-        self.context = await self.browser.new_context(
+
+        # Use persistent context for cookie preservation
+        self.context = await self.playwright.chromium.launch_persistent_context(
+            self.profile_dir,
+            headless=True,
             user_agent=self.user_agent,
             extra_http_headers={
                 "Accept": "*/*",
@@ -77,16 +86,38 @@ class WBAPIClient:
                 "X-Requested-With": "XMLHttpRequest",
             },
         )
+
+        # Create a page for warmup and later fetching
+        self.page = await self.context.new_page()
+
+        # Warmup: navigate to wildberries.ru to establish cookies
+        try:
+            warmup_timeout_ms = round(self.timeout_seconds * 1000)
+            await self.page.goto(
+                "https://www.wildberries.ru/",
+                wait_until="domcontentloaded",
+                timeout=warmup_timeout_ms,
+            )
+        except Exception as e:
+            logger.warning(f"Warmup navigation failed: {e}")
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
+        if self.page:
+            await self.page.close()
         if self.context:
             await self.context.close()
-        if self.browser:
-            await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+
+        # Cleanup temporary profile directory if we created it
+        if self._profile_dir_temp and self.profile_dir:
+            try:
+                shutil.rmtree(self.profile_dir)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp profile directory: {e}")
 
     def _build_url(self, query: str) -> str:
         """
@@ -150,7 +181,7 @@ class WBAPIClient:
         Returns:
             QueryResult with total field or error
         """
-        if not self.context:
+        if not self.page:
             raise RuntimeError("Client context not initialized. Use async context manager.")
 
         url = self._build_url(query)
@@ -161,40 +192,63 @@ class WBAPIClient:
         # Add random delay before request
         await self._random_delay()
 
+        # JavaScript code to execute fetch in-page (avoids bot detection)
+        js_code = """
+        async (url) => {
+            const response = await fetch(url, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            return {
+                status: response.status,
+                url: response.url,
+                text: await response.text(),
+                headers: Object.fromEntries(response.headers.entries())
+            };
+        }
+        """
+
         while attempt <= self.retry_strategy.max_retries:
             try:
                 logger.debug(f"Fetching query '{query}' (attempt {attempt + 1})")
 
-                # Make request using Playwright's APIRequestContext
-                timeout_ms = round(self.timeout_seconds * 1000)
-                response = await self.context.request.get(
-                    url,
-                    timeout=timeout_ms,
-                )
+                # Make request using in-page fetch to preserve browser context
+                try:
+                    response_data = await asyncio.wait_for(
+                        self.page.evaluate(js_code, url), timeout=self.timeout_seconds
+                    )
+                except asyncio.TimeoutError:
+                    raise  # Re-raise to be handled by outer try/except
 
                 # Debug logging for troubleshooting bot detection issues
                 logger.debug(f"Request to URL: {url}")
                 logger.debug(
-                    f"Response status: {response.status}, " f"headers: {dict(response.headers)}"
+                    f"Response status: {response_data['status']}, "
+                    f"headers: {response_data['headers']}"
                 )
 
                 # Check for redirects (compare response URL with original)
-                if response.url != url:
+                if response_data["url"] != url:
                     result.status = QueryStatus.FAILED
                     result.error_message = "Request was redirected"
                     logger.warning(f"Query '{query}' was redirected")
                     return result
 
                 # Check status code
-                if response.status in (429, 498):
+                if response_data["status"] in (429, 498):
                     # Rate limited - trigger global backoff if callback provided
-                    logger.warning(f"Rate limited (HTTP {response.status}) for query '{query}'")
+                    logger.warning(
+                        f"Rate limited (HTTP {response_data['status']}) for query '{query}'"
+                    )
 
                     if self.rate_limit_callback:
                         await self.rate_limit_callback()
 
                     if self.retry_strategy.should_retry(attempt):
-                        retry_after = self._parse_retry_after(response.headers)
+                        retry_after = self._parse_retry_after(response_data["headers"])
                         await self.retry_strategy.wait(attempt, retry_after)
                         # Wait for global rate limit to be lifted before retrying
                         if self.rate_limit_wait:
@@ -203,13 +257,13 @@ class WBAPIClient:
                         continue
                     else:
                         result.status = QueryStatus.FAILED
-                        result.error_message = f"Rate limited ({response.status})"
+                        result.error_message = f"Rate limited ({response_data['status']})"
                         result.retry_count = attempt
                         return result
 
-                elif response.status >= 500:
+                elif response_data["status"] >= 500:
                     # Server error
-                    logger.warning(f"Server error {response.status} for query '{query}'")
+                    logger.warning(f"Server error {response_data['status']} for query '{query}'")
 
                     if self.retry_strategy.should_retry(attempt):
                         await self.retry_strategy.wait(attempt)
@@ -217,20 +271,20 @@ class WBAPIClient:
                         continue
                     else:
                         result.status = QueryStatus.FAILED
-                        result.error_message = f"Server error ({response.status})"
+                        result.error_message = f"Server error ({response_data['status']})"
                         result.retry_count = attempt
                         return result
 
-                elif response.status != 200:
+                elif response_data["status"] != 200:
                     # Other error
                     result.status = QueryStatus.FAILED
-                    result.error_message = f"HTTP {response.status}"
-                    logger.warning(f"HTTP {response.status} for query '{query}'")
+                    result.error_message = f"HTTP {response_data['status']}"
+                    logger.warning(f"HTTP {response_data['status']} for query '{query}'")
                     return result
 
                 # Parse JSON response
                 try:
-                    text = await response.text()
+                    text = response_data["text"]
 
                     if not text or text.strip() == "":
                         result.status = QueryStatus.FAILED
